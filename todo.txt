@@ -1,0 +1,63 @@
+PROYECTO: SISTEMA DE GESTIÓN PARA CLÍNICA ESTÉTICA "MAGNOLIAS"
+
+DESCRIPCIÓN GENERAL:
+Desarrollo de un sistema integral de gestión en la nube diseñado a medida para una clínica estética. El sistema abarca la gestión interna de pacientes (historias clínicas y cuponeras), la administración de los profesionales y sus horarios, una agenda interactiva avanzada (turnos y salas), y facturación básica.
+Como diferencial fundamental y fase final, el sistema actuará como "cerebro" para un asistente virtual de WhatsApp (conectado vía ManyChat y n8n) que podrá leer información y agendar citas automáticamente sin intervención humana.
+
+PILA TECNOLÓGICA:
+- Frontend (App Web): React (Vite), TypeScript, Tailwind CSS, Shadcn/ui.
+- Backend & Base de Datos: Supabase (PostgreSQL, Auth, RLS).
+- Automatización & Chatbot: ManyChat, n8n, WhatsApp API.
+
+======================================================================
+ESTADO ACTUAL Y TAREAS REALIZADAS (COMPLETADO)
+======================================================================
+
+1. Setup y Arquitectura Core
+   - [x] Configuración inicial del proyecto con Vite, React y Tailwind.
+   - [x] Arquitectura de la base de datos relacional en Supabase.
+   - [x] Diseño UI/UX premium oscuro y navegación general (Sidebar).
+
+2. Módulo de Pacientes e Historia Clínica
+   - [x] Directorio y ABM de pacientes (Crear, leer, editar perfil).
+   - [x] Perfil detallado clínico de cada paciente.
+   - [x] Motor de Historia Clínica Continua (registro de sesiones, observaciones, profesional tratante).
+   - [x] Gestión visual de Cuponeras (visualización de tratamientos pre-pagados, sesiones contratadas vs. consumidas).
+
+3. Módulo de Configuración Organizacional
+   - [x] ABM de Profesionales Médicos.
+   - [x] Configuración avanzada de Disponibilidad y Horarios Mensuales por profesional.
+   - [x] Gestión y ABM de Consultorios / Salas clínicas.
+   - [x] Creación de tablas base para Servicios y Duraciones.
+
+4. Módulo de Agenda Interactiva (Turnos)
+   - [x] Interfaz de Calendario Premium estilo "Apple Calendar" modo oscuro.
+   - [x] Creación de turnos cruzando Paciente + Médico + Servicio + Consultorio.
+   - [x] Gestión visual de Estados de turnout (Pendiente [Amarillo], Confirmado [Verde], Cancelado [Rojo]).
+   - [x] Motor de "Anti Double-Booking": Validación automática cruzada para evitar que un médico o sala se superponga en horarios.
+
+======================================================================
+TAREAS PENDIENTES (PRÓXIMOS PASOS)
+======================================================================
+
+Fase A: Módulo de Caja, Administración y Servicios End-to-End
+   - [ ] Implementar ABM completo de "Servicios" (definir precios, y categorizar si son de agendado automático o requieren revisión manual).
+   - [ ] Pantalla para registrar "Ventas" en Caja (Facturación de tickets).
+   - [ ] Lógica para descontar / consumir sesiones de una Cuponera tras marcar un turno como "Asistió".
+   - [ ] Canje manual de Big Box.
+
+Fase B: Seguridad y Autenticación del Personal
+   - [ ] Desarrollar pantalla de Login / Acceso protegido.
+   - [ ] Bloqueo de rutas internas (Dashboard inaccesible sin credenciales).
+   - [ ] Configuración restrictiva de políticas de seguridad (RLS) en las tablas de Supabase para blindar los datos a nivel productivo.
+
+Fase C: Dashboard Analítico
+   - [ ] Panel inicial métrico (Home) para recepcionistas con los turnos clave del día.
+   - [ ] Gráficos de rendimiento por profesional y cierre de caja.
+
+Fase D: INTEGRACIÓN WHATSAPP & AUTOMATIZACIÓN (NUEVO / FINAL)
+   - [ ] Conectar la base de datos de Supabase vía REST API o Edge Functions para exponerla de forma segura al exterior.
+   - [ ] Crear y configurar cuenta en ManyChat para recibir y enrutar mensajes de los clientes.
+   - [ ] Conectar la API de WhatsApp a n8n para orquestar la recolección de variables complejas.
+   - [ ] Desarrollo Flujo n8n 1: Consultar disponibilidad en tiempo real y listar servicios clínicos.
+   - [ ] Desarrollo Flujo n8n 2: Captar la decisión del cliente y agendar automáticamente el turno disparando un INSERT al endpoint de "Agenda" de este sistema, bloqueando la sala y el profesional elegido.
