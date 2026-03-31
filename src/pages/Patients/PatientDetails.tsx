@@ -357,7 +357,7 @@ export function PatientDetails() {
                                                 </div>
                                                 <div className="pl-1 mt-3">
                                                     <p className="text-[13px] text-muted-foreground mb-3">
-                                                        Adquirido el {new Date(item.created_at).toLocaleDateString('es-AR')}
+                                                        Adquirido el {new Date(item.created_at).toLocaleDateString('es-AR') + ' ' + new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
                                                     </p>
                                                     
                                                     {cuponeraRedemptions.length > 0 && (
@@ -374,7 +374,7 @@ export function PatientDetails() {
                                                                     return (
                                                                         <div key={r.id} className="text-xs space-y-1 pb-2 border-b border-border/50 last:border-0 last:pb-0">
                                                                             <div className="flex justify-between items-center font-medium text-foreground">
-                                                                                <span>Sesión {sessionNumber} - {r.date.toLocaleDateString('es-AR')}</span>
+                                                                                <span>Sesión {sessionNumber} - {r.date.toLocaleDateString('es-AR') + ' ' + r.date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
                                                                                 <div className="flex items-center gap-2">
                                                                                     <span className="text-[10px] px-1.5 py-0.5 rounded-sm bg-muted/50 border border-border/50 text-muted-foreground">{r.type}</span>
                                                                                     <span className="text-muted-foreground">{r.professional ? `${r.professional.first_name} ${r.professional.last_name}` : 'Sin profesional'}</span>
@@ -404,7 +404,7 @@ export function PatientDetails() {
                                                 <div className="flex justify-between text-sm mb-3">
                                                     <span className="font-semibold text-foreground text-base group-hover:text-primary transition-colors">{item.service_type || 'Visita General'}</span>
                                                     <span className="text-muted-foreground bg-muted/50 px-2 py-0.5 rounded border border-border/50">
-                                                        {new Date(item.created_at).toLocaleDateString('es-AR')} - {prof ? `Dr / a.${prof.first_name} ${prof.last_name}` : 'Sin profesional asignado'}
+                                                        {new Date(item.created_at).toLocaleDateString('es-AR') + ' ' + new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} - {prof ? `Dr / a.${prof.first_name} ${prof.last_name}` : 'Sin profesional asignado'}
                                                     </span>
                                                 </div>
                                                 <p className="text-sm text-muted-foreground/90 whitespace-pre-wrap leading-relaxed line-clamp-3">
@@ -607,7 +607,7 @@ export function PatientDetails() {
                                                                 return (
                                                                 <div key={r.id} className="bg-muted/50 p-2.5 rounded-md border border-border/50">
                                                                     <div className="flex justify-between items-center mb-1">
-                                                                        <span className="text-[10px] font-medium text-foreground">Sesión {sessionNumber} - {r.date.toLocaleDateString('es-AR')}</span>
+                                                                        <span className="text-[10px] font-medium text-foreground">Sesión {sessionNumber} - {r.date.toLocaleDateString('es-AR') + ' ' + r.date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
                                                                         <div className="flex items-center gap-2">
                                                                             <span className="text-[9px] px-1 py-0.5 rounded-sm bg-background border border-border text-muted-foreground">{r.type}</span>
                                                                             {r.professional && (
