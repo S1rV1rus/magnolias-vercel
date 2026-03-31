@@ -1,0 +1,531 @@
+@import "tailwindcss";
+@import "react-big-calendar/lib/css/react-big-calendar.css";
+
+@theme {
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 98%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 217.2 91.2% 59.8%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 0 0% 1%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 4%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 4%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 10%;
+    --muted-foreground: 0 0% 60%;
+    --accent: 0 0% 15%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 12%;
+    --input: 0 0% 12%;
+    --ring: 0 0% 90%;
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+  }
+}
+
+@layer components {
+  /* --- Premium Dark Mode Effects (Apple-inspired) --- */
+
+  /* Glass Card Effect */
+  .dark .border {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  /* Sidebar tone matches card background in dark mode */
+  .dark .bg-card {
+    background-color: hsl(var(--card));
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.06);
+  }
+
+  /* Card hover elevation */
+  .dark .border-border\/60:hover,
+  .dark .shadow-sm:hover {
+    border-color: rgba(255, 255, 255, 0.12) !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45) !important;
+  }
+
+  /* Primary gradient for general buttons and highlights */
+  .dark .bg-primary {
+    background: linear-gradient(145deg, hsl(0 0% 100%), hsl(0 0% 80%));
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4);
+  }
+
+  /* --- Brand Blue Accents for Dark Mode --- */
+  .dark {
+    --brand-blue: 211 100% 62%;
+  }
+
+  /* 1. Theme Toggle */
+  .dark button[role="switch"].bg-primary {
+    background: hsl(var(--brand-blue)) !important;
+    border-color: hsl(var(--brand-blue)) !important;
+    box-shadow: 0 0 10px 0 color-mix(in srgb, hsl(var(--brand-blue)) 30%, transparent) !important;
+  }
+
+  /* 2. Sidebar & Header */
+  .dark nav .text-primary,
+  .dark .w-64 .text-primary,
+  .dark .w-72 .text-primary,
+  .dark header .text-primary {
+    color: hsl(var(--brand-blue)) !important;
+  }
+
+  .dark nav .bg-primary\/20,
+  .dark .w-64 .bg-primary\/20,
+  .dark .w-72 .bg-primary\/20 {
+    background-color: color-mix(in srgb, hsl(var(--brand-blue)) 15%, transparent) !important;
+  }
+
+  /* 3. Calendar Toolbar Active Button */
+  .dark .rbc-toolbar button.rbc-active {
+    background-color: hsl(var(--brand-blue)) !important;
+    color: #ffffff !important;
+    border-color: hsl(var(--brand-blue)) !important;
+    box-shadow: 0 4px 14px 0 color-mix(in srgb, hsl(var(--brand-blue)) 30%, transparent) !important;
+  }
+
+  /* Recalibrating React Big Calendar for a Premium Dark Mode Look */
+  .rbc-calendar {
+    color: var(--color-foreground);
+    background-color: transparent;
+    border: none;
+    font-family: inherit;
+  }
+
+  /* Toolbar Modernization */
+  .rbc-toolbar {
+    margin-bottom: 2rem;
+    gap: 1rem;
+  }
+
+  .rbc-toolbar button {
+    color: var(--color-muted-foreground);
+    border: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
+    background-color: transparent;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    padding: 0.5rem 1.25rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .rbc-toolbar button:hover {
+    color: var(--color-foreground);
+    background-color: var(--color-secondary);
+    border-color: var(--color-secondary);
+  }
+
+  .rbc-toolbar button.rbc-active {
+    background-color: var(--color-primary);
+    color: var(--color-primary-foreground);
+    border-color: var(--color-primary);
+    box-shadow: 0 4px 14px 0 color-mix(in srgb, var(--color-primary) 30%, transparent);
+  }
+
+  .rbc-toolbar button:active {
+    transform: scale(0.98);
+  }
+
+  .rbc-btn-group {
+    display: flex;
+    gap: 0.25rem;
+  }
+
+  .rbc-btn-group+.rbc-btn-group {
+    margin-left: 0;
+  }
+
+  .rbc-btn-group>button:first-child:not(:last-child),
+  .rbc-btn-group>button:last-child:not(:first-child),
+  .rbc-btn-group>button:not(:first-child):not(:last-child) {
+    border-radius: 9999px;
+  }
+
+  .rbc-toolbar-label {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--color-foreground);
+  }
+
+  /* ── Resource View: Consultorio Column Headers ── */
+  .rbc-resource-header {
+    padding: 10px 6px !important;
+    text-align: center !important;
+    font-size: 0.72rem !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.06em !important;
+    color: var(--color-muted-foreground) !important;
+    background-color: color-mix(in srgb, var(--color-muted) 40%, transparent) !important;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent) !important;
+    border-left: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent) !important;
+  }
+
+  .rbc-resource-header:first-child {
+    border-left: none !important;
+  }
+
+  /* Sin bordes extra en el events-container — los separadores los maneja box-shadow en .rbc-time-column */
+  .rbc-day-slot .rbc-events-container {
+    border-left: none !important;
+  }
+
+  /* Resource view scrolleable */
+  .rbc-time-view-resources {
+    overflow-x: auto !important;
+  }
+
+  /* Grid & Structure Minimalism */
+  .rbc-header {
+    border: none !important;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent) !important;
+    padding: 12px 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-foreground);
+  }
+
+  .rbc-header+.rbc-header {
+    border-left: 1px dashed color-mix(in srgb, var(--color-border) 70%, transparent) !important;
+  }
+
+  .rbc-month-view,
+  .rbc-time-view,
+  .rbc-agenda-view {
+    border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent) !important;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: var(--color-card);
+  }
+
+  .rbc-time-header.rbc-overflowing {
+    border-right: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent) !important;
+  }
+
+  /* Day Backgrounds */
+  .rbc-day-bg+.rbc-day-bg {
+    border-left: 1px solid rgba(255, 255, 255, 0.08) !important;
+  }
+
+  /* Ocultar sección "todo el día" para que los headers se peguen a la grilla y no haya huecos en las líneas */
+  .rbc-allday-cell {
+    display: none !important;
+  }
+
+  .rbc-day-bg {
+    border: none !important;
+  }
+
+  .rbc-month-row+.rbc-month-row {
+    border-top: 1px dashed color-mix(in srgb, var(--color-border) 70%, transparent) !important;
+  }
+
+  .rbc-off-range-bg {
+    background-color: transparent !important;
+    opacity: 0.15;
+  }
+
+  .rbc-today {
+    background-color: color-mix(in srgb, var(--color-primary) 3%, transparent) !important;
+  }
+
+  /* ── Grilla de tiempo ── */
+
+  /* Columna del gutter (horas a la izquierda) — sin bordes ni fondo blanco */
+  .rbc-time-gutter,
+  .rbc-time-header-gutter {
+    background-color: transparent !important;
+  }
+
+  .rbc-time-gutter .rbc-timeslot-group {
+    border: none !important;
+  }
+
+  /* Texto de horas en el gutter */
+  .rbc-time-gutter .rbc-time-slot {
+    color: var(--color-muted-foreground) !important;
+    font-size: 0.72rem !important;
+    font-weight: 500 !important;
+    text-align: right !important;
+    padding-right: 8px !important;
+  }
+
+  /* Líneas de hora (cada 60 min) — más notables */
+  .rbc-timeslot-group {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07) !important;
+    min-height: 60px;
+  }
+
+  /* Líneas de media hora (cada 30 min) — más sutiles */
+  .rbc-time-slot {
+    border: none !important;
+  }
+
+  .rbc-day-slot .rbc-time-slot {
+    border-top: 1px solid rgba(255, 255, 255, 0.04) !important;
+  }
+
+  /* ── Separadores verticales entre columnas ──
+     Cambiamos a border-left estándar para coincidir con cómo los headers de resource lo arman. */
+  .rbc-time-header-gutter {
+    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .rbc-time-column {
+    border-right: none !important;
+  }
+
+  .rbc-time-column + .rbc-time-column {
+    border-left: 1px solid rgba(255, 255, 255, 0.08) !important;
+  }
+
+  /* Separador entre header y cuerpo del calendario */
+  .rbc-time-header>.rbc-row:first-child {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.10) !important;
+  }
+
+  .rbc-time-content {
+    border-top: 1px solid rgba(255, 255, 255, 0.10) !important;
+  }
+
+  /* Ocultar el label de tiempo — la posición vertical ya indica el horario */
+  .rbc-event-label {
+    display: none !important;
+  }
+
+  /* El contenido ocupa todo el alto disponible */
+  .rbc-event-content {
+    height: 100% !important;
+    overflow: hidden !important;
+  }
+
+  /* ── Event Pill ── */
+  .rbc-event,
+  .custom-event {
+    background-color: transparent; /* Will be overridden by inline style */
+    color: #ffffff !important;
+    border: none !important;
+    border-left: 3px solid rgba(255, 255, 255, 0.4) !important;
+    border-radius: 4px !important;
+    padding: 2px 5px !important;
+    font-size: 0.78rem !important;
+    box-shadow: 0 2px 6px 0 rgba(0, 0, 0, 0.4) !important;
+    transition: all 0.15s ease !important;
+    min-height: 52px !important;
+    /* Forza altura mínima para leer 30min */
+    z-index: 10;
+  }
+
+  .rbc-event:hover {
+    z-index: 50 !important;
+    /* Lo trae al frente al pasar el ratón */
+  }
+
+  /* Forzar texto blanco en todos los hijos */
+  .rbc-event *,
+  .custom-event * {
+    color: #ffffff !important;
+  }
+
+  .rbc-event:hover,
+  .custom-event:hover {
+    filter: brightness(1.15) !important;
+    transform: translateY(-1px) !important;
+  }
+
+  .rbc-event.rbc-selected,
+  .custom-event.rbc-selected {
+    filter: brightness(1.25) !important;
+    border-left-width: 5px !important;
+  }
+
+  /* Ocultar tachado via CSS si usamos JS para the textDecoration (opcional, lo dejamos por las dudas para subclases) */
+  .custom-event--cancelado_tarde *,
+  .custom-event--cancelado * {
+    color: rgba(255, 255, 255, 0.75) !important;
+  }
+
+  .rbc-button-link {
+    color: var(--color-foreground);
+  }
+
+  /* Current Time Indicator */
+  .rbc-current-time-indicator {
+    background-color: var(--color-destructive);
+    height: 2px;
+    opacity: 0.8;
+  }
+
+  .rbc-current-time-indicator::before {
+    background-color: var(--color-destructive);
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-top: -3px;
+    margin-left: -4px;
+  }
+
+  /* ── Appointment Tooltip ── */
+  .appt-tooltip {
+    position: fixed;
+    z-index: 9999;
+    pointer-events: none;
+
+    background: color-mix(in srgb, var(--color-card) 90%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+    border-radius: 10px;
+    box-shadow:
+      0 8px 24px rgba(0, 0, 0, 0.18),
+      0 2px 6px rgba(0, 0, 0, 0.10),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    padding: 0;
+    overflow: hidden;
+
+    animation: appt-tooltip-in 0.13s cubic-bezier(0.22, 1, 0.36, 1) both;
+    transform-origin: top left;
+  }
+
+  @keyframes appt-tooltip-in {
+    from {
+      opacity: 0;
+      transform: scale(0.94) translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
+  .appt-tooltip-header {
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .appt-tooltip-names {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-foreground);
+    line-height: 1.3;
+    display: block;
+  }
+
+  .appt-tooltip-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid;
+    align-self: flex-start;
+    letter-spacing: 0.02em;
+  }
+
+  .appt-tooltip-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .appt-tooltip-rows {
+    padding: 8px 12px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .appt-tooltip-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.75rem;
+    color: var(--color-muted-foreground);
+    line-height: 1.4;
+  }
+
+  .appt-tooltip-icon {
+    font-size: 0.75rem;
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+    opacity: 0.8;
+  }
+}
