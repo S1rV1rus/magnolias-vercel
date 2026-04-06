@@ -128,10 +128,6 @@ export function Coupons() {
     })
 
 
-    useEffect(() => {
-        fetchData()
-    }, [])
-
     const fetchData = async () => {
         setLoading(true)
 
@@ -168,6 +164,10 @@ export function Coupons() {
 
         setLoading(false)
     }
+
+    useEffect(() => {
+        fetchData()
+    }, [])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
