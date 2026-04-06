@@ -7,7 +7,6 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   base: '/',
   server: {
-    port: 8082,
     headers: {
       // Blocks the page from being embedded in iframes (clickjacking protection)
       'X-Frame-Options': 'DENY',
