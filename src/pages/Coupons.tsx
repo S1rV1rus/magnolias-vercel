@@ -463,7 +463,7 @@ export function Coupons() {
                                         type="number"
                                         required
                                         min="1"
-                                        max="50"
+                                        max="100"
                                         value={formData.total_sessions}
                                         onChange={(e) => setFormData({ ...formData, total_sessions: parseInt(e.target.value) })}
                                         className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
