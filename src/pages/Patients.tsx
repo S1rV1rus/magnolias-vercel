@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { Plus, Search, FileText, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Search, FileText, Pencil, Trash2, AlertTriangle } from 'lucide-react'
 
 export function Patients() {
     const [patients, setPatients] = useState<any[]>([])
@@ -17,6 +17,17 @@ export function Patients() {
         phone: '',
         email: ''
     })
+
+    // Duplicate detection: checks in real-time as user types
+    const duplicateMatch = useMemo(() => {
+        if (!formData.first_name.trim() || !formData.last_name.trim()) return null
+        const fullName = `${formData.first_name.trim()} ${formData.last_name.trim()}`.toLowerCase()
+        return patients.find(p => {
+            if (editingPatient && p.id === editingPatient.id) return false
+            const existing = `${p.first_name} ${p.last_name}`.toLowerCase()
+            return existing === fullName
+        }) ?? null
+    }, [formData.first_name, formData.last_name, patients, editingPatient])
 
     useEffect(() => {
         fetchPatients()
@@ -47,6 +58,9 @@ export function Patients() {
 
     const handleSavePatient = async (e: React.FormEvent) => {
         e.preventDefault()
+
+        // Block save if exact duplicate name exists
+        if (duplicateMatch) return
 
         if (editingPatient) {
             // Actualizar
@@ -213,6 +227,22 @@ export function Patients() {
                         </p>
 
                         <form onSubmit={handleSavePatient} className="space-y-4">
+                            {/* Duplicate warning banner */}
+                            {duplicateMatch && (
+                                <div className="flex items-start gap-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                                    <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                                    <div className="text-sm text-amber-700 dark:text-amber-400">
+                                        <p className="font-semibold">Ya existe un paciente con este nombre.</p>
+                                        <p className="text-xs mt-0.5 opacity-90">
+                                            <strong>{duplicateMatch.first_name} {duplicateMatch.last_name}</strong>
+                                            {duplicateMatch.document_id ? ` — CI: ${duplicateMatch.document_id}` : ''}
+                                            {duplicateMatch.phone ? ` — Tel: ${duplicateMatch.phone}` : ''}
+                                        </p>
+                                        <p className="text-xs mt-1 opacity-75">Pedile un segundo nombre o segundo apellido para poder diferenciarlos.</p>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-foreground">Nombre</label>
@@ -276,7 +306,8 @@ export function Patients() {
                                 </button>
                                 <button
                                     type="submit"
-                                    className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background cursor-pointer transition-colors"
+                                    disabled={!!duplicateMatch}
+                                    className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {editingPatient ? 'Guardar Cambios' : 'Guardar Paciente'}
                                 </button>

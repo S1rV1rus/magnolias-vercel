@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { ArrowLeft, Calendar, FileText, CreditCard, Plus, Ticket, CheckCircle2, X, User } from 'lucide-react'
+import { ArrowLeft, Calendar, FileText, CreditCard, Plus, Ticket, CheckCircle2, X, User, Pencil, Trash2, ImageIcon, ChevronLeft, ChevronRight, Play, Pause, Images } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
 export function PatientDetails() {
@@ -38,6 +38,25 @@ export function PatientDetails() {
     // Modal Nueva Historia Clínica
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false)
     const [selectedHistoryEntry, setSelectedHistoryEntry] = useState<any | null>(null)
+    const [isEditingHistory, setIsEditingHistory] = useState(false)
+    const [confirmDeleteHistory, setConfirmDeleteHistory] = useState(false)
+    const [editHistoryForm, setEditHistoryForm] = useState({
+        service_type: '',
+        professional_id: '',
+        notes: '',
+        date: ''
+    })
+    
+    // Modal Cuponera Detalle/Editar
+    const [selectedCuponera, setSelectedCuponera] = useState<any | null>(null)
+    const [isEditingCuponera, setIsEditingCuponera] = useState(false)
+    const [confirmDeleteCuponera, setConfirmDeleteCuponera] = useState(false)
+    const [editCuponeraForm, setEditCuponeraForm] = useState({
+        total_sessions: 0,
+        invoice_number: '',
+        amount_paid: '',
+        is_active: true
+    })
     const [historyForm, setHistoryForm] = useState({
         service_type: '',
         professional_id: '',
@@ -45,6 +64,19 @@ export function PatientDetails() {
         data: {}, // Parámetros específicos JSON
         date: new Date().toISOString().split('T')[0]
     })
+
+    // Fotos de historia clínica
+    const [historyPhotos, setHistoryPhotos] = useState<Record<string, string[]>>({}) // historyId → [url, url, url]
+    const [pendingPhotos, setPendingPhotos] = useState<File[]>([])                    // fotos en el modal antes de guardar
+    const [pendingPreviews, setPendingPreviews] = useState<string[]>([])              // object URLs para preview
+    const [uploadingPhotos, setUploadingPhotos] = useState(false)
+    const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)              // foto ampliada
+
+    // Slideshow de progreso
+    const [slideshowCuponeraId, setSlideshowCuponeraId] = useState<string | null>(null)
+    const [slideshowIndex, setSlideshowIndex] = useState(0)
+    const [slideshowPlaying, setSlideshowPlaying] = useState(true)
+    const slideshowTimer = useRef<ReturnType<typeof setInterval> | null>(null)
     const uniqueAssignedTreatmentNames = Array.from(new Set(
         cuponeras.map(c => {
             const service = Array.isArray(c.services) ? c.services[0] : c.services
@@ -92,6 +124,25 @@ export function PatientDetails() {
             .order('created_at', { ascending: false })
 
         if (hData) setHistoryEntries(hData)
+
+        // Fetch photos and build URL map
+        const { data: photosData } = await supabase
+            .from('clinical_history_photos')
+            .select('clinical_history_id, storage_path, photo_order')
+            .eq('patient_id', id)
+            .order('photo_order', { ascending: true })
+
+        if (photosData) {
+            const photoMap: Record<string, string[]> = {}
+            photosData.forEach((p: any) => {
+                const { data: urlData } = supabase.storage
+                    .from('patient-photos')
+                    .getPublicUrl(p.storage_path)
+                if (!photoMap[p.clinical_history_id]) photoMap[p.clinical_history_id] = []
+                photoMap[p.clinical_history_id].push(urlData.publicUrl)
+            })
+            setHistoryPhotos(photoMap)
+        }
 
         // Fetch services for dropdown
         const { data: sData } = await supabase.from('services').select('id, name').eq('is_active', true)
@@ -155,7 +206,7 @@ export function PatientDetails() {
 
         if (!error) {
             const serviceName = Array.isArray(cuponera.services) ? cuponera.services[0]?.name : cuponera.services?.name;
-            await supabase.from('history').insert({
+            await supabase.from('clinical_history').insert({
                 patient_id: id,
                 service_type: 'Canje de Sesión',
                 notes: `[CUPONERA:${cuponera.id}] Se consumió manualmente la sesión ${cuponera.used_sessions + 1} de la cuponera asignada de ${serviceName || 'Tratamiento'}.`,
@@ -200,7 +251,7 @@ export function PatientDetails() {
             createdAt = new Date(`${historyForm.date}T12:00:00Z`).toISOString()
         }
 
-        const { error } = await supabase
+        const { data: newEntry, error } = await supabase
             .from('clinical_history')
             .insert([{
                 patient_id: id,
@@ -210,15 +261,171 @@ export function PatientDetails() {
                 data: historyForm.data,
                 created_at: createdAt
             }])
+            .select('id')
+            .single()
 
-        if (!error) {
+        if (!error && newEntry) {
+            // Upload pending photos
+            if (pendingPhotos.length > 0) {
+                setUploadingPhotos(true)
+                for (let i = 0; i < pendingPhotos.length; i++) {
+                    const file = pendingPhotos[i]
+                    const ext = file.name.split('.').pop() || 'jpg'
+                    const path = `${id}/${newEntry.id}/${crypto.randomUUID()}.${ext}`
+                    const { error: uploadError } = await supabase.storage
+                        .from('patient-photos')
+                        .upload(path, file, { upsert: false })
+                    if (!uploadError) {
+                        await supabase.from('clinical_history_photos').insert({
+                            clinical_history_id: newEntry.id,
+                            patient_id: id,
+                            storage_path: path,
+                            photo_order: i + 1
+                        })
+                    }
+                }
+                setUploadingPhotos(false)
+            }
             setIsHistoryModalOpen(false)
+            setPendingPhotos([])
+            setPendingPreviews([])
             setHistoryForm({ service_type: '', professional_id: '', notes: '', data: {}, date: new Date().toISOString().split('T')[0] })
             loadData()
         } else {
             console.error('Error creating history entry:', error)
         }
     }
+
+    const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || [])
+        const remaining = 3 - pendingPhotos.length
+        const toAdd = files.slice(0, remaining)
+        setPendingPhotos(prev => [...prev, ...toAdd])
+        setPendingPreviews(prev => [...prev, ...toAdd.map(f => URL.createObjectURL(f))])
+        e.target.value = '' // reset so same file can be re-selected
+    }
+
+    const removePendingPhoto = (idx: number) => {
+        URL.revokeObjectURL(pendingPreviews[idx])
+        setPendingPhotos(prev => prev.filter((_, i) => i !== idx))
+        setPendingPreviews(prev => prev.filter((_, i) => i !== idx))
+    }
+
+    const handleUpdateHistory = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!selectedHistoryEntry) return
+
+        let createdAt = selectedHistoryEntry.created_at
+        const todayStr = new Date().toISOString().split('T')[0]
+        if (editHistoryForm.date && editHistoryForm.date !== todayStr) {
+            const existing = new Date(selectedHistoryEntry.created_at)
+            const time = `${String(existing.getUTCHours()).padStart(2,'0')}:${String(existing.getUTCMinutes()).padStart(2,'0')}:00`
+            createdAt = new Date(`${editHistoryForm.date}T${time}Z`).toISOString()
+        }
+
+        const { error } = await supabase
+            .from('clinical_history')
+            .update({
+                service_type: editHistoryForm.service_type,
+                professional_id: editHistoryForm.professional_id || null,
+                notes: editHistoryForm.notes,
+                created_at: createdAt
+            })
+            .eq('id', selectedHistoryEntry.id)
+
+        if (!error) {
+            setSelectedHistoryEntry(null)
+            setIsEditingHistory(false)
+            loadData()
+        } else {
+            console.error('Error updating history entry:', error)
+        }
+    }
+
+    const handleDeleteHistory = async () => {
+        if (!selectedHistoryEntry) return
+
+        const { error } = await supabase
+            .from('clinical_history')
+            .delete()
+            .eq('id', selectedHistoryEntry.id)
+
+        if (!error) {
+            setSelectedHistoryEntry(null)
+            setIsEditingHistory(false)
+            setConfirmDeleteHistory(false)
+            loadData()
+        } else {
+            console.error('Error deleting history entry:', error)
+        }
+    }
+
+    const handleUpdateCuponera = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!selectedCuponera) return
+
+        const { error } = await supabase
+            .from('cuponeras')
+            .update({
+                total_sessions: editCuponeraForm.total_sessions,
+                invoice_number: editCuponeraForm.invoice_number || null,
+                amount_paid: editCuponeraForm.amount_paid ? parseFloat(editCuponeraForm.amount_paid) : null,
+                is_active: editCuponeraForm.is_active
+            })
+            .eq('id', selectedCuponera.id)
+
+        if (!error) {
+            setSelectedCuponera(null)
+            setIsEditingCuponera(false)
+            loadData()
+        } else {
+            console.error('Error updating cuponera:', error)
+        }
+    }
+
+    const handleDeleteCuponera = async () => {
+        if (!selectedCuponera) return
+
+        const { error } = await supabase
+            .from('cuponeras')
+            .delete()
+            .eq('id', selectedCuponera.id)
+
+        if (!error) {
+            setSelectedCuponera(null)
+            setIsEditingCuponera(false)
+            setConfirmDeleteCuponera(false)
+            loadData()
+        } else {
+            console.error('Error deleting cuponera:', error)
+        }
+    }
+
+    // ---- Slideshow auto-advance ----
+    useEffect(() => {
+        if (slideshowTimer.current) clearInterval(slideshowTimer.current)
+        if (!slideshowCuponeraId || !slideshowPlaying) return
+
+        const cuponera = cuponeras.find(c => c.id === slideshowCuponeraId)
+        if (!cuponera) return
+
+        const sessionEntries = historyEntries
+            .filter(h => h.notes?.includes(`[CUPONERA:${slideshowCuponeraId}]`))
+            .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+
+        const frames = sessionEntries.flatMap((h, idx) => {
+            const photos = historyPhotos[h.id] || []
+            return photos.map(url => ({ url, sessionIdx: idx + 1, date: h.created_at }))
+        })
+
+        if (frames.length <= 1) return
+
+        slideshowTimer.current = setInterval(() => {
+            setSlideshowIndex(prev => (prev + 1) % frames.length)
+        }, 3500)
+
+        return () => { if (slideshowTimer.current) clearInterval(slideshowTimer.current) }
+    }, [slideshowCuponeraId, slideshowPlaying, historyEntries, historyPhotos])
 
     if (loading) {
         return <div className="p-8 text-muted-foreground animate-pulse">Cargando paciente...</div>
@@ -308,6 +515,140 @@ export function PatientDetails() {
                             </button>
                         </div>
 
+                        {/* --- Galería de Progreso por Tratamiento --- */}
+                        {(() => {
+                            const cuponerasWithPhotos = cuponeras.filter(c => {
+                                const entries = historyEntries.filter(h => h.notes?.includes(`[CUPONERA:${c.id}]`))
+                                return entries.some(h => (historyPhotos[h.id]?.length ?? 0) > 0)
+                            })
+                            if (cuponerasWithPhotos.length === 0) return null
+
+                            const activeCuponera = cuponerasWithPhotos.find(c => c.id === slideshowCuponeraId) || cuponerasWithPhotos[0]
+
+                            // Build frames for active cuponera
+                            const sessionEntries = historyEntries
+                                .filter(h => h.notes?.includes(`[CUPONERA:${activeCuponera.id}]`))
+                                .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+
+                            const frames = sessionEntries.flatMap((h, idx) => {
+                                const photos = historyPhotos[h.id] || []
+                                return photos.map(url => ({
+                                    url,
+                                    sessionIdx: idx + 1,
+                                    date: h.created_at
+                                }))
+                            })
+
+                            const activeFrame = frames[slideshowIndex % Math.max(1, frames.length)]
+                            const serviceLabel = (Array.isArray(activeCuponera.services) ? activeCuponera.services[0] : activeCuponera.services)?.name || 'Tratamiento'
+
+                            return (
+                                <div className="border border-border/60 rounded-xl overflow-hidden bg-card shadow-sm">
+                                    {/* Treatment selector tabs */}
+                                    {cuponerasWithPhotos.length > 1 && (
+                                        <div className="flex gap-1 px-4 pt-4 pb-0 border-b border-border/40">
+                                            {cuponerasWithPhotos.map(c => {
+                                                const label = (Array.isArray(c.services) ? c.services[0] : c.services)?.name || 'Tratamiento'
+                                                const isActive = c.id === (slideshowCuponeraId || cuponerasWithPhotos[0].id)
+                                                return (
+                                                    <button
+                                                        key={c.id}
+                                                        onClick={() => { setSlideshowCuponeraId(c.id); setSlideshowIndex(0) }}
+                                                        className={cn(
+                                                            'px-3 py-2 text-xs font-medium border-b-2 transition-colors cursor-pointer -mb-px',
+                                                            isActive ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+                                                        )}
+                                                    >{label}</button>
+                                                )
+                                            })}
+                                        </div>
+                                    )}
+
+                                    <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40">
+                                        <Images className="w-4 h-4 text-primary" />
+                                        <span className="text-sm font-semibold text-foreground">Progreso Visual — {serviceLabel}</span>
+                                        <span className="ml-auto text-xs text-muted-foreground">{frames.length} foto{frames.length !== 1 ? 's' : ''}</span>
+                                    </div>
+
+                                    {frames.length === 0 ? (
+                                        <div className="p-8 text-center text-sm text-muted-foreground">No hay fotos en este tratamiento aún.</div>
+                                    ) : (
+                                        <div className="relative">
+                                            {/* Main photo */}
+                                            <div className="relative h-72 bg-black/90 overflow-hidden">
+                                                {frames.map((frame, fi) => (
+                                                    <img
+                                                        key={fi}
+                                                        src={frame.url}
+                                                        alt={`Sesión ${frame.sessionIdx}`}
+                                                        onClick={() => setLightboxUrl(frame.url)}
+                                                        className={cn(
+                                                            'absolute inset-0 w-full h-full object-contain transition-opacity duration-700 cursor-zoom-in',
+                                                            fi === (slideshowIndex % frames.length) ? 'opacity-100' : 'opacity-0'
+                                                        )}
+                                                    />
+                                                ))}
+
+                                                {/* Session label overlay */}
+                                                {activeFrame && (
+                                                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-4 py-3">
+                                                        <p className="text-white text-sm font-semibold">
+                                                            Sesión {activeFrame.sessionIdx}
+                                                        </p>
+                                                        <p className="text-white/70 text-xs">
+                                                            {new Date(activeFrame.date).toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                                                        </p>
+                                                    </div>
+                                                )}
+
+                                                {/* Prev / Next */}
+                                                {frames.length > 1 && (
+                                                    <>
+                                                        <button
+                                                            onClick={() => setSlideshowIndex(prev => (prev - 1 + frames.length) % frames.length)}
+                                                            className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 transition-colors cursor-pointer"
+                                                        ><ChevronLeft className="w-5 h-5" /></button>
+                                                        <button
+                                                            onClick={() => setSlideshowIndex(prev => (prev + 1) % frames.length)}
+                                                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 transition-colors cursor-pointer"
+                                                        ><ChevronRight className="w-5 h-5" /></button>
+                                                    </>
+                                                )}
+                                            </div>
+
+                                            {/* Controls bar */}
+                                            <div className="flex items-center justify-between px-4 py-2.5 border-t border-border/40">
+                                                {/* Dots */}
+                                                <div className="flex gap-1.5">
+                                                    {frames.map((_, fi) => (
+                                                        <button
+                                                            key={fi}
+                                                            onClick={() => setSlideshowIndex(fi)}
+                                                            className={cn(
+                                                                'w-2 h-2 rounded-full transition-all cursor-pointer',
+                                                                fi === (slideshowIndex % frames.length)
+                                                                    ? 'bg-primary scale-125'
+                                                                    : 'bg-muted-foreground/40 hover:bg-muted-foreground'
+                                                            )}
+                                                        />
+                                                    ))}
+                                                </div>
+                                                {/* Play / Pause */}
+                                                <button
+                                                    onClick={() => setSlideshowPlaying(p => !p)}
+                                                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                                                >
+                                                    {slideshowPlaying
+                                                        ? <><Pause className="w-3.5 h-3.5" /> Pausar</>
+                                                        : <><Play className="w-3.5 h-3.5" /> Reproducir</>}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        })()}
+
                         {historyEntries.length === 0 && cuponeras.length === 0 && appointments.filter(a => a.notes?.trim()).length === 0 ? (
                             <div className="text-sm text-muted-foreground border border-border/50 border-dashed rounded-lg p-8 text-center bg-muted/20">
                                 No hay tratamientos asignados ni entradas en la historia clínica aún.
@@ -344,12 +685,29 @@ export function PatientDetails() {
                                         ].sort((a, b) => a.date.getTime() - b.date.getTime());
 
                                         return (
-                                            <div key={`cup-${item.id}`} className="border border-primary/20 shadow-sm rounded-lg p-5 bg-primary/5 relative overflow-hidden transition-colors">
+                                            <div 
+                                                key={`cup-${item.id}`} 
+                                                onClick={() => {
+                                                    setSelectedCuponera(item);
+                                                    setEditCuponeraForm({
+                                                        total_sessions: item.total_sessions,
+                                                        invoice_number: item.invoice_number || '',
+                                                        amount_paid: item.amount_paid?.toString() || '',
+                                                        is_active: item.is_active
+                                                    });
+                                                }}
+                                                className="border border-primary/20 shadow-sm rounded-lg p-5 bg-primary/5 relative overflow-hidden cursor-pointer hover:border-primary shadow-md transition-all group hover:scale-[1.01]"
+                                            >
+                                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                                                    <div className="bg-primary/10 p-1.5 rounded-full text-primary">
+                                                        <Pencil className="w-4 h-4" />
+                                                    </div>
+                                                </div>
                                                 <div className="absolute top-0 left-0 w-1.5 h-full bg-primary rounded-l-lg"></div>
                                                 <div className="flex justify-between items-start mb-2 pl-1">
                                                     <div>
                                                         <span className="text-[10px] font-bold uppercase tracking-wider text-primary mb-1 block">Tratamiento Actual Asignado</span>
-                                                        <h4 className="font-semibold text-foreground text-base leading-tight">{service?.name || "Servicio Genérico"}</h4>
+                                                        <h4 className="font-semibold text-foreground text-base leading-tight group-hover:text-primary transition-colors">{service?.name || "Servicio Genérico"}</h4>
                                                     </div>
                                                     <span className="text-[11px] bg-background px-2.5 py-1 rounded-full border border-border/50 font-medium text-foreground whitespace-nowrap shadow-sm">
                                                         Sesiones: {item.used_sessions} / {item.total_sessions}
@@ -359,7 +717,29 @@ export function PatientDetails() {
                                                     <p className="text-[13px] text-muted-foreground mb-3">
                                                         Adquirido el {new Date(item.created_at).toLocaleDateString('es-AR') + ' ' + new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
                                                     </p>
-                                                    
+
+                                                    {/* Progress bar */}
+                                                    {(() => {
+                                                        const pct = item.total_sessions > 0 ? item.used_sessions / item.total_sessions : 0
+                                                        return (
+                                                            <div className="mb-3">
+                                                                <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
+                                                                    <span>{item.used_sessions} de {item.total_sessions} sesiones usadas</span>
+                                                                    <span>{Math.round(pct * 100)}%</span>
+                                                                </div>
+                                                                <div className="w-full h-1.5 bg-muted/50 rounded-full overflow-hidden">
+                                                                    <div
+                                                                        className={cn(
+                                                                            "h-full rounded-full transition-all duration-500",
+                                                                            pct >= 1 || pct > 0.75 ? "bg-red-500" : pct > 0.5 ? "bg-amber-500" : "bg-primary/70"
+                                                                        )}
+                                                                        style={{ width: `${Math.min(100, pct * 100)}%` }}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        )
+                                                    })()}
+
                                                     {cuponeraRedemptions.length > 0 && (
                                                         <details className="group/details mt-3">
                                                             <summary className="cursor-pointer text-xs font-medium text-primary flex items-center gap-1 hover:text-primary/80 transition-colors w-max select-none">
@@ -398,8 +778,13 @@ export function PatientDetails() {
                                             <div
                                                 key={`hist-${item.id}`}
                                                 onClick={() => setSelectedHistoryEntry(item)}
-                                                className="border border-border/60 shadow-sm rounded-lg p-5 bg-card relative overflow-hidden cursor-pointer hover:border-primary/50 transition-colors group"
+                                                className="border border-border/60 shadow-sm rounded-lg p-5 bg-card relative overflow-hidden cursor-pointer hover:border-primary shadow-md transition-all group hover:scale-[1.01]"
                                             >
+                                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                                                    <div className="bg-primary/10 p-1.5 rounded-full text-primary">
+                                                        <Pencil className="w-4 h-4" />
+                                                    </div>
+                                                </div>
                                                 <div className="absolute top-0 left-0 w-1 h-full bg-primary/40 rounded-l-lg group-hover:bg-primary transition-colors"></div>
                                                 <div className="flex justify-between text-sm mb-3">
                                                     <span className="font-semibold text-foreground text-base group-hover:text-primary transition-colors">{item.service_type || 'Visita General'}</span>
@@ -412,6 +797,26 @@ export function PatientDetails() {
                                                 </p>
                                                 {item.notes && item.notes.length > 150 && (
                                                     <div className="text-xs text-primary mt-2 font-medium">Ver detalles completos...</div>
+                                                )}
+                                                {/* Photo thumbnails */}
+                                                {historyPhotos[item.id]?.length > 0 && (
+                                                    <div className="flex gap-1.5 mt-3 pt-3 border-t border-border/40" onClick={e => e.stopPropagation()}>
+                                                        {historyPhotos[item.id].map((url, pi) => (
+                                                            <img
+                                                                key={pi}
+                                                                src={url}
+                                                                alt={`Foto ${pi + 1}`}
+                                                                onClick={() => setLightboxUrl(url)}
+                                                                className="w-14 h-14 object-cover rounded-md border border-border hover:opacity-90 cursor-zoom-in transition-opacity"
+                                                            />
+                                                        ))}
+                                                        <div className="flex items-center ml-1">
+                                                            <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                                                <ImageIcon className="w-3 h-3" />
+                                                                {historyPhotos[item.id].length} foto{historyPhotos[item.id].length > 1 ? 's' : ''}
+                                                            </span>
+                                                        </div>
+                                                    </div>
                                                 )}
                                             </div>
                                         )
@@ -595,6 +1000,27 @@ export function PatientDetails() {
                                                     <div className="text-center w-full">
                                                         <span className="block text-xl font-medium text-muted-foreground/50 leading-none">{cup.total_sessions}</span>
                                                         <span className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1 block">Total</span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Progress bar */}
+                                                <div className="mt-3">
+                                                    <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
+                                                        <span>{cup.used_sessions} de {cup.total_sessions} sesiones usadas</span>
+                                                        <span>{Math.round((cup.used_sessions / cup.total_sessions) * 100)}%</span>
+                                                    </div>
+                                                    <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                                                        <div
+                                                            className={cn(
+                                                                "h-full rounded-full transition-all duration-500",
+                                                                isExhausted || (cup.used_sessions / cup.total_sessions) > 0.75
+                                                                    ? "bg-red-500"
+                                                                    : (cup.used_sessions / cup.total_sessions) > 0.5
+                                                                        ? "bg-amber-500"
+                                                                        : "bg-green-500"
+                                                            )}
+                                                            style={{ width: `${Math.min(100, (cup.used_sessions / cup.total_sessions) * 100)}%` }}
+                                                        />
                                                     </div>
                                                 </div>
 
@@ -888,12 +1314,63 @@ export function PatientDetails() {
                                     />
                                 </div>
 
+                                {/* Fotos de la sesión */}
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                                            <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                                            Fotos de la sesión
+                                            <span className="text-muted-foreground font-normal">(máx. 3, opcional)</span>
+                                        </label>
+                                        <span className="text-xs text-muted-foreground">{pendingPhotos.length}/3</span>
+                                    </div>
+
+                                    {pendingPreviews.length > 0 && (
+                                        <div className="flex gap-2 flex-wrap">
+                                            {pendingPreviews.map((url, idx) => (
+                                                <div key={idx} className="relative group w-24 h-24">
+                                                    <img
+                                                        src={url}
+                                                        alt={`Foto ${idx + 1}`}
+                                                        className="w-24 h-24 object-cover rounded-lg border border-border"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removePendingPhoto(idx)}
+                                                        className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shadow"
+                                                    >
+                                                        <X className="w-3 h-3" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {pendingPhotos.length < 3 && (
+                                        <label className="flex items-center gap-2 w-full border border-dashed border-border/70 hover:border-primary/50 rounded-lg p-3 cursor-pointer transition-colors bg-muted/30 hover:bg-primary/5">
+                                            <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                                            <span className="text-sm text-muted-foreground">
+                                                {pendingPhotos.length === 0 ? 'Agregar foto(s)...' : 'Agregar otra foto...'}
+                                            </span>
+                                            <input
+                                                type="file"
+                                                accept="image/jpeg,image/png,image/webp,image/heic"
+                                                multiple
+                                                className="hidden"
+                                                onChange={handlePhotoSelect}
+                                            />
+                                        </label>
+                                    )}
+                                </div>
+
                                 <div className="pt-4 flex justify-end gap-3">
-                                    <button type="button" onClick={() => setIsHistoryModalOpen(false)} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
+                                    <button type="button" onClick={() => { setIsHistoryModalOpen(false); setPendingPhotos([]); setPendingPreviews([]) }} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
                                         Cancelar
                                     </button>
-                                    <button type="submit" className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background cursor-pointer transition-colors">
-                                        Guardar Archivo
+                                    <button type="submit" disabled={uploadingPhotos} className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background cursor-pointer transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2">
+                                        {uploadingPhotos ? (
+                                            <><span className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />Subiendo fotos...</>
+                                        ) : 'Guardar Archivo'}
                                     </button>
                                 </div>
                             </form>
@@ -902,53 +1379,380 @@ export function PatientDetails() {
                 )
             }
 
-            {/* Modal de Lectura de Historia Clínica */}
+            {/* Modal de Lectura / Edición de Historia Clínica */}
             {
                 selectedHistoryEntry && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
                         <div className="w-full max-w-2xl bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 p-6 flex flex-col max-h-[90vh]">
+                            {/* Header */}
                             <div className="flex justify-between items-start mb-4 pb-4 border-b border-border/50">
                                 <div>
                                     <h3 className="text-xl font-bold text-foreground">
-                                        {selectedHistoryEntry.service_type || 'Visita General'}
+                                        {isEditingHistory ? 'Editar Entrada Clínica' : (selectedHistoryEntry.service_type || 'Visita General')}
                                     </h3>
                                     <p className="text-sm text-muted-foreground mt-1">
-                                        Evolución del {new Date(selectedHistoryEntry.created_at).toLocaleDateString('es-AR')} a las {new Date(selectedHistoryEntry.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                                        {isEditingHistory
+                                            ? 'Modificá los datos de esta entrada clínica.'
+                                            : `Evolución del ${new Date(selectedHistoryEntry.created_at).toLocaleDateString('es-AR')} a las ${new Date(selectedHistoryEntry.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`
+                                        }
                                     </p>
                                 </div>
-                                <button onClick={() => setSelectedHistoryEntry(null)} className="p-2 mb-auto hover:bg-muted rounded-full text-muted-foreground transition-colors cursor-pointer">
+                                <button
+                                    onClick={() => {
+                                        setSelectedHistoryEntry(null)
+                                        setIsEditingHistory(false)
+                                        setConfirmDeleteHistory(false)
+                                    }}
+                                    className="p-2 mb-auto hover:bg-muted rounded-full text-muted-foreground transition-colors cursor-pointer"
+                                >
                                     <X className="w-5 h-5" />
                                 </button>
                             </div>
 
-                            <div className="overflow-y-auto flex-1 pr-2 space-y-4">
-                                <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
-                                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Profesional a Cargo</h4>
-                                    <p className="text-sm text-foreground font-medium">
-                                        {(() => {
-                                            const p = Array.isArray(selectedHistoryEntry.professionals) ? selectedHistoryEntry.professionals[0] : selectedHistoryEntry.professionals
-                                            return p ? `Dr / a.${p.first_name} ${p.last_name}` : 'Sin registro de profesional'
-                                        })()}
-                                    </p>
-                                </div>
+                            {/* READ MODE */}
+                            {!isEditingHistory && (
+                                <div className="overflow-y-auto flex-1 pr-2 space-y-4">
+                                    <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
+                                        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Profesional a Cargo</h4>
+                                        <p className="text-sm text-foreground font-medium">
+                                            {(() => {
+                                                const p = Array.isArray(selectedHistoryEntry.professionals) ? selectedHistoryEntry.professionals[0] : selectedHistoryEntry.professionals
+                                                return p ? `Dr / a. ${p.first_name} ${p.last_name}` : 'Sin registro de profesional'
+                                            })()}
+                                        </p>
+                                    </div>
 
-                                <div>
-                                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Notas y Evolución</h4>
-                                    <div className="bg-background border border-border/50 p-4 rounded-lg text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed min-h-[150px]">
-                                        {selectedHistoryEntry.notes || 'No se registraron notas en esta evolución.'}
+                                    <div>
+                                        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Notas y Evolución</h4>
+                                        <div className="bg-background border border-border/50 p-4 rounded-lg text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed min-h-[150px]">
+                                            {selectedHistoryEntry.notes || 'No se registraron notas en esta evolución.'}
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
+                            )}
 
-                            <div className="pt-4 mt-4 border-t border-border/50 flex justify-end">
-                                <button type="button" onClick={() => setSelectedHistoryEntry(null)} className="px-5 py-2 text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md transition-colors shadow-sm cursor-pointer">
-                                    Cerrar
-                                </button>
-                            </div>
+                            {/* EDIT MODE */}
+                            {isEditingHistory && (
+                                <form onSubmit={handleUpdateHistory} className="overflow-y-auto flex-1 pr-2 space-y-4">
+                                    <div className="grid grid-cols-3 gap-4">
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-foreground">Fecha de la Visita</label>
+                                            <input
+                                                type="date"
+                                                required
+                                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                                value={editHistoryForm.date}
+                                                onChange={e => setEditHistoryForm({ ...editHistoryForm, date: e.target.value })}
+                                            />
+                                        </div>
+                                        <div className="space-y-2 col-span-2">
+                                            <label className="text-sm font-medium text-foreground">Tipo de Visita / Tratamiento</label>
+                                            <input
+                                                type="text"
+                                                required
+                                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                                value={editHistoryForm.service_type}
+                                                onChange={e => setEditHistoryForm({ ...editHistoryForm, service_type: e.target.value })}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-foreground">Profesional a cargo</label>
+                                        <select
+                                            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                            value={editHistoryForm.professional_id}
+                                            onChange={e => setEditHistoryForm({ ...editHistoryForm, professional_id: e.target.value })}
+                                        >
+                                            <option value="">-- Sin profesional --</option>
+                                            {professionals.map(p => (
+                                                <option key={p.id} value={p.id}>Dr/a. {p.first_name} {p.last_name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-foreground">Notas de la Evolución</label>
+                                        <textarea
+                                            required
+                                            rows={5}
+                                            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none resize-y"
+                                            value={editHistoryForm.notes}
+                                            onChange={e => setEditHistoryForm({ ...editHistoryForm, notes: e.target.value })}
+                                        />
+                                    </div>
+
+                                    <div className="pt-2 flex justify-end gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => { setIsEditingHistory(false); setConfirmDeleteHistory(false) }}
+                                            className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                                        >
+                                            Cancelar
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background cursor-pointer transition-colors"
+                                        >
+                                            Guardar Cambios
+                                        </button>
+                                    </div>
+                                </form>
+                            )}
+
+                            {/* Footer actions (read mode) */}
+                            {!isEditingHistory && (
+                                <div className="pt-4 mt-4 border-t border-border/50 flex justify-between items-center gap-3">
+                                    {/* Delete zone */}
+                                    <div className="flex items-center gap-2">
+                                        {!confirmDeleteHistory ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => setConfirmDeleteHistory(true)}
+                                                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 rounded-md transition-colors cursor-pointer"
+                                            >
+                                                <Trash2 className="w-4 h-4" /> Eliminar
+                                            </button>
+                                        ) : (
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm text-destructive font-medium">¿Confirmar eliminación?</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleDeleteHistory}
+                                                    className="px-3 py-1.5 text-sm font-semibold bg-destructive text-white rounded-md hover:bg-destructive/90 transition-colors cursor-pointer"
+                                                >
+                                                    Sí, eliminar
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setConfirmDeleteHistory(false)}
+                                                    className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                                                >
+                                                    No
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Edit / Close */}
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const p = Array.isArray(selectedHistoryEntry.professionals) ? selectedHistoryEntry.professionals[0] : selectedHistoryEntry.professionals
+                                                setEditHistoryForm({
+                                                    service_type: selectedHistoryEntry.service_type || '',
+                                                    professional_id: p ? selectedHistoryEntry.professional_id || '' : '',
+                                                    notes: selectedHistoryEntry.notes || '',
+                                                    date: new Date(selectedHistoryEntry.created_at).toISOString().split('T')[0]
+                                                })
+                                                setIsEditingHistory(true)
+                                                setConfirmDeleteHistory(false)
+                                            }}
+                                            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md transition-colors shadow-sm cursor-pointer"
+                                        >
+                                            <Pencil className="w-4 h-4" /> Editar
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedHistoryEntry(null)
+                                                setConfirmDeleteHistory(false)
+                                            }}
+                                            className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 rounded-md transition-colors shadow-sm cursor-pointer"
+                                        >
+                                            Cerrar
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )
             }
-        </div >
+
+            {/* Modal de Lectura / Edición de Cuponera */}
+            {
+                selectedCuponera && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 text-left">
+                        <div className="w-full max-w-xl bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 p-6 flex flex-col max-h-[90vh]">
+                            {/* Header */}
+                            <div className="flex justify-between items-start mb-4 pb-4 border-b border-border/50">
+                                <div>
+                                    <h3 className="text-xl font-bold text-foreground">
+                                        {isEditingCuponera ? 'Editar Cuponera' : `Detalle de Cuponera`}
+                                    </h3>
+                                    <p className="text-sm text-muted-foreground mt-1">
+                                        {Array.isArray(selectedCuponera.services) ? selectedCuponera.services[0]?.name : selectedCuponera.services?.name}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setSelectedCuponera(null)
+                                        setIsEditingCuponera(false)
+                                        setConfirmDeleteCuponera(false)
+                                    }}
+                                    className="p-2 mb-auto hover:bg-muted rounded-full text-muted-foreground transition-colors cursor-pointer"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            {/* READ MODE */}
+                            {!isEditingCuponera && (
+                                <div className="space-y-6 overflow-y-auto flex-1">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
+                                            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Sesiones</h4>
+                                            <p className="text-lg font-bold text-foreground">
+                                                {selectedCuponera.used_sessions} / {selectedCuponera.total_sessions}
+                                            </p>
+                                        </div>
+                                        <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
+                                            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Número de Factura</h4>
+                                            <p className="text-lg font-bold text-foreground text-primary">
+                                                {selectedCuponera.invoice_number || 'N/A'}
+                                            </p>
+                                        </div>
+                                        <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
+                                            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Monto Abonado</h4>
+                                            <p className="text-lg font-bold text-foreground">
+                                                {selectedCuponera.amount_paid ? `$${selectedCuponera.amount_paid}` : 'N/A'}
+                                            </p>
+                                        </div>
+                                        <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
+                                            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Estado</h4>
+                                            <span className={cn(
+                                                "inline-flex px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wide",
+                                                selectedCuponera.is_active ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600"
+                                            )}>
+                                                {selectedCuponera.is_active ? 'Activa' : 'Inactiva'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex justify-end gap-3 pt-4 border-t border-border/50">
+                                        <div className="flex-1 flex items-center gap-2">
+                                            {!confirmDeleteCuponera ? (
+                                                <button
+                                                    onClick={() => setConfirmDeleteCuponera(true)}
+                                                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 rounded-md transition-colors cursor-pointer"
+                                                >
+                                                    <Trash2 className="w-4 h-4" /> Eliminar Cuponera
+                                                </button>
+                                            ) : (
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs text-destructive font-bold">¿Borrar definitivamente?</span>
+                                                    <button onClick={handleDeleteCuponera} className="bg-destructive text-white px-3 py-1.5 rounded-md text-xs font-bold shadow-sm hover:bg-destructive/90 transition-colors">Sí, borrar</button>
+                                                    <button onClick={() => setConfirmDeleteCuponera(false)} className="text-muted-foreground text-xs hover:text-foreground">Cerrar</button>
+                                                </div>
+                                            )}
+                                        </div>
+                                        
+                                        <button
+                                            onClick={() => setIsEditingCuponera(true)}
+                                            className="px-4 py-2 text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md transition-shadow shadow-sm cursor-pointer"
+                                        >
+                                            Editar Datos
+                                        </button>
+                                        <button
+                                            onClick={() => setSelectedCuponera(null)}
+                                            className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 rounded-md shadow-sm cursor-pointer"
+                                        >
+                                            Cerrar
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* EDIT MODE */}
+                            {isEditingCuponera && (
+                                <form onSubmit={handleUpdateCuponera} className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-foreground">Total de Sesiones</label>
+                                            <input
+                                                type="number"
+                                                required
+                                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                                value={editCuponeraForm.total_sessions}
+                                                onChange={e => setEditCuponeraForm({...editCuponeraForm, total_sessions: parseInt(e.target.value)})}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-foreground">Factura #</label>
+                                            <input
+                                                type="text"
+                                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                                value={editCuponeraForm.invoice_number}
+                                                onChange={e => setEditCuponeraForm({...editCuponeraForm, invoice_number: e.target.value})}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-foreground">Monto Abonado</label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                                value={editCuponeraForm.amount_paid}
+                                                onChange={e => setEditCuponeraForm({...editCuponeraForm, amount_paid: e.target.value})}
+                                            />
+                                        </div>
+                                        <div className="flex items-end pb-2">
+                                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                                    checked={editCuponeraForm.is_active}
+                                                    onChange={e => setEditCuponeraForm({...editCuponeraForm, is_active: e.target.checked})}
+                                                />
+                                                <span className="text-sm font-medium text-foreground">Cuponera Activa</span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex justify-end gap-3 pt-6 border-t border-border/50">
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsEditingCuponera(false)}
+                                            className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                                        >
+                                            Atrás
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background cursor-pointer transition-colors"
+                                        >
+                                            Guardar Cambios
+                                        </button>
+                                    </div>
+                                </form>
+                            )}
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* ---- Lightbox ---- */}
+            {lightboxUrl && (
+                <div
+                    className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-sm animate-in fade-in duration-200"
+                    onClick={() => setLightboxUrl(null)}
+                >
+                    <button
+                        onClick={() => setLightboxUrl(null)}
+                        className="absolute top-4 right-4 text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-2 transition-colors cursor-pointer z-10"
+                    >
+                        <X className="w-5 h-5" />
+                    </button>
+                    <img
+                        src={lightboxUrl}
+                        alt="Foto ampliada"
+                        onClick={e => e.stopPropagation()}
+                        className="max-w-[92vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                    />
+                </div>
+            )}
+        </div>
     )
 }
