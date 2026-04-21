@@ -718,26 +718,29 @@ export function Appointments() {
         : {}
 
     return (
-        <div className="h-full flex flex-col p-6 gap-4 animate-in fade-in duration-500">
+        <div className="flex flex-col gap-4 animate-in fade-in duration-500 h-[calc(100dvh-8rem)] md:h-full">
             {/* Header */}
-            <div className="flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center justify-between flex-shrink-0 gap-2">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight text-foreground">Agenda</h1>
-                    <p className="mt-1 text-sm text-muted-foreground">
+                    <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">Agenda</h1>
+                    <p className="mt-1 text-xs md:text-sm text-muted-foreground hidden sm:block">
                         Gestión de turnos por consultorio en tiempo real.
                     </p>
                 </div>
                 <button
                     onClick={() => openNewModal()}
-                    className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors cursor-pointer"
+                    className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 md:px-4 md:py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors cursor-pointer whitespace-nowrap"
                 >
                     <Plus className="h-4 w-4" />
-                    Nuevo Turno
+                    <span className="hidden sm:inline">Nuevo Turno</span>
+                    <span className="sm:hidden">Nuevo</span>
                 </button>
             </div>
 
             {/* Calendar */}
-            <div ref={calendarRef} className="flex-1 bg-card rounded-xl shadow-sm border border-border overflow-hidden min-h-0">
+            <div ref={calendarRef} className="flex-1 bg-card rounded-xl shadow-sm border border-border overflow-hidden min-h-[500px] md:min-h-0 flex flex-col">
+                <div className="flex-1 overflow-x-auto overflow-y-hidden">
+                    <div className="min-w-[500px] md:min-w-0 h-full">
                 <Calendar
                     culture="es"
                     localizer={localizer}
@@ -774,6 +777,8 @@ export function Appointments() {
                     components={{ event: AppointmentEvent }}
                     {...resourceProps}
                 />
+                    </div>
+                </div>
             </div>
 
             {/* ── Modal ── */}
