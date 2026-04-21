@@ -467,21 +467,24 @@ export function Settings() {
 
             {/* Modal de ABM de Profesional */}
             {isProfModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                    <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 p-6">
-                        <div className="flex justify-between items-start mb-1">
-                            <h3 className="text-xl font-bold text-foreground">
-                                {editingProfId ? 'Editar Profesional' : 'Nuevo Profesional'}
-                            </h3>
-                            <button onClick={() => setIsProfModalOpen(false)} className="text-muted-foreground hover:text-foreground">
-                                <X className="w-5 h-5" />
-                            </button>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 md:p-6">
+                    <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 flex flex-col max-h-[100dvh] md:max-h-[90vh]">
+                        <div className="p-6 pb-4 border-b border-border/50 shrink-0">
+                            <div className="flex justify-between items-start mb-1">
+                                <h3 className="text-xl font-bold text-foreground">
+                                    {editingProfId ? 'Editar Profesional' : 'Nuevo Profesional'}
+                                </h3>
+                                <button onClick={() => setIsProfModalOpen(false)} className="text-muted-foreground hover:text-foreground">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                                {editingProfId ? 'Modifica los datos del personal existente.' : 'Registra un nuevo integrante en el equipo de Clínica Magnolias.'}
+                            </p>
                         </div>
-                        <p className="text-sm text-muted-foreground mb-5">
-                            {editingProfId ? 'Modifica los datos del personal existente.' : 'Registra un nuevo integrante en el equipo de Clínica Magnolias.'}
-                        </p>
 
-                        <form onSubmit={handleSaveProf} className="space-y-4">
+                        <div className="p-6 overflow-y-auto">
+                            <form onSubmit={handleSaveProf} className="space-y-4">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-foreground">Nombre</label>
@@ -615,27 +618,31 @@ export function Settings() {
                                 </button>
                             </div>
                         </form>
+                        </div>
                     </div>
                 </div>
             )}
 
             {/* Modal de ABM de Servicios */}
             {isServModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                    <div className="w-full max-w-lg bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 p-6">
-                        <div className="flex justify-between items-start mb-1">
-                            <h3 className="text-xl font-bold text-foreground">
-                                {editingServId ? 'Editar Servicio' : 'Nuevo Servicio'}
-                            </h3>
-                            <button onClick={() => setIsServModalOpen(false)} className="text-muted-foreground hover:text-foreground">
-                                <X className="w-5 h-5" />
-                            </button>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 md:p-6">
+                    <div className="w-full max-w-lg bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 flex flex-col max-h-[100dvh] md:max-h-[90vh]">
+                        <div className="p-6 pb-4 border-b border-border/50 shrink-0">
+                            <div className="flex justify-between items-start mb-1">
+                                <h3 className="text-xl font-bold text-foreground">
+                                    {editingServId ? 'Editar Servicio' : 'Nuevo Servicio'}
+                                </h3>
+                                <button onClick={() => setIsServModalOpen(false)} className="text-muted-foreground hover:text-foreground">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                                {editingServId ? 'Actualiza el catálogo de tratamientos.' : 'Añade un nuevo tratamiento o servicio al catálogo.'}
+                            </p>
                         </div>
-                        <p className="text-sm text-muted-foreground mb-5">
-                            {editingServId ? 'Actualiza el catálogo de tratamientos.' : 'Añade un nuevo tratamiento o servicio al catálogo.'}
-                        </p>
 
-                        <form onSubmit={handleSaveServ} className="space-y-4">
+                        <div className="p-6 overflow-y-auto">
+                            <form onSubmit={handleSaveServ} className="space-y-4">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-foreground">Nombre del Servicio</label>
                                 <input
@@ -715,6 +722,7 @@ export function Settings() {
                                 </button>
                             </div>
                         </form>
+                        </div>
                     </div>
                 </div>
             )}

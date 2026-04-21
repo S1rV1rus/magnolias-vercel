@@ -30,7 +30,7 @@ export function Login() {
 
 
     return (
-        <div className="min-h-screen bg-background flex items-center justify-center p-4 relative overflow-hidden">
+        <div className="min-h-[100dvh] bg-background flex items-center justify-center py-10 px-4 relative overflow-x-hidden overflow-y-auto">
             {/* Atmospheric background blobs */}
             <div className="absolute inset-0 pointer-events-none">
                 <div

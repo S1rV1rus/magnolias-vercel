@@ -215,104 +215,106 @@ export function Patients() {
 
             {/* Modal de Nuevo / Editar Paciente */}
             {isModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                    <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 p-6">
-                        <h3 className="text-xl font-bold text-foreground mb-1">
-                            {editingPatient ? 'Editar Paciente' : 'Nuevo Paciente'}
-                        </h3>
-                        <p className="text-sm text-muted-foreground mb-5">
-                            {editingPatient
-                                ? 'Modificá los datos del paciente y guardá los cambios.'
-                                : 'Ingresa los datos del cliente para registrar su ficha médica.'}
-                        </p>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 md:p-6">
+                    <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 max-h-[100dvh] md:max-h-[90vh] flex flex-col">
+                        <div className="p-6 overflow-y-auto">
+                            <h3 className="text-xl font-bold text-foreground mb-1">
+                                {editingPatient ? 'Editar Paciente' : 'Nuevo Paciente'}
+                            </h3>
+                            <p className="text-sm text-muted-foreground mb-5">
+                                {editingPatient
+                                    ? 'Modificá los datos del paciente y guardá los cambios.'
+                                    : 'Ingresa los datos del cliente para registrar su ficha médica.'}
+                            </p>
 
-                        <form onSubmit={handleSavePatient} className="space-y-4">
-                            {/* Duplicate warning banner */}
-                            {duplicateMatch && (
-                                <div className="flex items-start gap-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-                                    <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
-                                    <div className="text-sm text-amber-700 dark:text-amber-400">
-                                        <p className="font-semibold">Ya existe un paciente con este nombre.</p>
-                                        <p className="text-xs mt-0.5 opacity-90">
-                                            <strong>{duplicateMatch.first_name} {duplicateMatch.last_name}</strong>
-                                            {duplicateMatch.document_id ? ` — CI: ${duplicateMatch.document_id}` : ''}
-                                            {duplicateMatch.phone ? ` — Tel: ${duplicateMatch.phone}` : ''}
-                                        </p>
-                                        <p className="text-xs mt-1 opacity-75">Pedile un segundo nombre o segundo apellido para poder diferenciarlos.</p>
+                            <form onSubmit={handleSavePatient} className="space-y-4">
+                                {/* Duplicate warning banner */}
+                                {duplicateMatch && (
+                                    <div className="flex items-start gap-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                                        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                                        <div className="text-sm text-amber-700 dark:text-amber-400">
+                                            <p className="font-semibold">Ya existe un paciente con este nombre.</p>
+                                            <p className="text-xs mt-0.5 opacity-90">
+                                                <strong>{duplicateMatch.first_name} {duplicateMatch.last_name}</strong>
+                                                {duplicateMatch.document_id ? ` — CI: ${duplicateMatch.document_id}` : ''}
+                                                {duplicateMatch.phone ? ` — Tel: ${duplicateMatch.phone}` : ''}
+                                            </p>
+                                            <p className="text-xs mt-1 opacity-75">Pedile un segundo nombre o segundo apellido para poder diferenciarlos.</p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-foreground">Nombre</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                            value={formData.first_name}
+                                            onChange={e => setFormData({ ...formData, first_name: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-foreground">Apellido</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                            value={formData.last_name}
+                                            onChange={e => setFormData({ ...formData, last_name: e.target.value })}
+                                        />
                                     </div>
                                 </div>
-                            )}
 
-                            <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-foreground">Nombre</label>
+                                    <label className="text-sm font-medium text-foreground">Cédula de Identidad <span className="text-muted-foreground font-normal">(opcional)</span></label>
                                     <input
                                         type="text"
-                                        required
                                         className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
-                                        value={formData.first_name}
-                                        onChange={e => setFormData({ ...formData, first_name: e.target.value })}
+                                        value={formData.document_id}
+                                        onChange={e => setFormData({ ...formData, document_id: e.target.value })}
                                     />
                                 </div>
+
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-foreground">Apellido</label>
+                                    <label className="text-sm font-medium text-foreground">Teléfono de Contacto <span className="text-muted-foreground font-normal">(opcional)</span></label>
                                     <input
                                         type="text"
-                                        required
                                         className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
-                                        value={formData.last_name}
-                                        onChange={e => setFormData({ ...formData, last_name: e.target.value })}
+                                        value={formData.phone}
+                                        onChange={e => setFormData({ ...formData, phone: e.target.value })}
                                     />
                                 </div>
-                            </div>
 
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-foreground">Cédula de Identidad <span className="text-muted-foreground font-normal">(opcional)</span></label>
-                                <input
-                                    type="text"
-                                    className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
-                                    value={formData.document_id}
-                                    onChange={e => setFormData({ ...formData, document_id: e.target.value })}
-                                />
-                            </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-foreground">Correo Electrónico <span className="text-muted-foreground font-normal">(opcional)</span></label>
+                                    <input
+                                        type="email"
+                                        className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                        value={formData.email}
+                                        onChange={e => setFormData({ ...formData, email: e.target.value })}
+                                    />
+                                </div>
 
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-foreground">Teléfono de Contacto <span className="text-muted-foreground font-normal">(opcional)</span></label>
-                                <input
-                                    type="text"
-                                    className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
-                                    value={formData.phone}
-                                    onChange={e => setFormData({ ...formData, phone: e.target.value })}
-                                />
-                            </div>
-
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-foreground">Correo Electrónico <span className="text-muted-foreground font-normal">(opcional)</span></label>
-                                <input
-                                    type="email"
-                                    className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
-                                    value={formData.email}
-                                    onChange={e => setFormData({ ...formData, email: e.target.value })}
-                                />
-                            </div>
-
-                            <div className="pt-4 flex justify-end gap-3">
-                                <button
-                                    type="button"
-                                    onClick={() => { setIsModalOpen(false); setEditingPatient(null) }}
-                                    className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-                                >
-                                    Cancelar
-                                </button>
-                                <button
-                                    type="submit"
-                                    disabled={!!duplicateMatch}
-                                    className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    {editingPatient ? 'Guardar Cambios' : 'Guardar Paciente'}
-                                </button>
-                            </div>
-                        </form>
+                                <div className="pt-4 flex justify-end gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => { setIsModalOpen(false); setEditingPatient(null) }}
+                                        className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={!!duplicateMatch}
+                                        className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {editingPatient ? 'Guardar Cambios' : 'Guardar Paciente'}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
                 </div>
             )}

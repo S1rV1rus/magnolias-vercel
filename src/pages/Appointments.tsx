@@ -778,9 +778,9 @@ export function Appointments() {
 
             {/* ── Modal ── */}
             {isModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                    <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200">
-                        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 md:p-6">
+                    <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 max-h-[100dvh] md:max-h-[90vh] flex flex-col">
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
                             <h2 className="text-lg font-semibold text-foreground">
                                 {selectedEvent ? 'Actualizar Turno' : 'Agendar Nuevo Turno'}
                             </h2>
@@ -792,7 +792,7 @@ export function Appointments() {
                             </button>
                         </div>
 
-                        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
                             {selectedEvent ? (
                                 /* ── Edit mode ── */
                                 <div className="space-y-4">

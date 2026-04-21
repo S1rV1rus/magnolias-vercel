@@ -1073,12 +1073,13 @@ export function PatientDetails() {
 
             {/* Modal Nueva Cuponera */}
             {isCuponeraModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                    <div className="w-full max-w-sm bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 p-6">
-                        <h3 className="text-lg font-bold text-foreground mb-1">Vender Cuponera</h3>
-                        <p className="text-sm text-muted-foreground mb-5">Asigna un paquete de sesiones al cliente.</p>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+                    <div className="w-full max-w-sm bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 flex flex-col max-h-[100dvh] md:max-h-[90vh]">
+                        <div className="p-6 overflow-y-auto">
+                            <h3 className="text-lg font-bold text-foreground mb-1">Vender Cuponera</h3>
+                            <p className="text-sm text-muted-foreground mb-5">Asigna un paquete de sesiones al cliente.</p>
 
-                        <form onSubmit={handleCreateCuponera} className="space-y-4">
+                            <form onSubmit={handleCreateCuponera} className="space-y-4">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-foreground">Tratamiento</label>
                                 <select
@@ -1152,6 +1153,7 @@ export function PatientDetails() {
                                 </button>
                             </div>
                         </form>
+                        </div>
                     </div>
                 </div>
             )}
@@ -1159,12 +1161,13 @@ export function PatientDetails() {
             {/* Modal Editar Paciente */}
             {
                 isEditModalOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                        <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 p-6">
-                            <h3 className="text-xl font-bold text-foreground mb-1">Editar Paciente</h3>
-                            <p className="text-sm text-muted-foreground mb-5">Modifica los datos de contacto y legajo del paciente.</p>
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+                        <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 flex flex-col max-h-[100dvh] md:max-h-[90vh]">
+                            <div className="p-6 overflow-y-auto">
+                                <h3 className="text-xl font-bold text-foreground mb-1">Editar Paciente</h3>
+                                <p className="text-sm text-muted-foreground mb-5">Modifica los datos de contacto y legajo del paciente.</p>
 
-                            <form onSubmit={handleUpdatePatient} className="space-y-4">
+                                <form onSubmit={handleUpdatePatient} className="space-y-4">
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium text-foreground">Nombre</label>
@@ -1227,6 +1230,7 @@ export function PatientDetails() {
                                     </button>
                                 </div>
                             </form>
+                            </div>
                         </div>
                     </div>
                 )
@@ -1235,12 +1239,13 @@ export function PatientDetails() {
             {/* Modal de Nueva Hoja de Historia Clínica */}
             {
                 isHistoryModalOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                        <div className="w-full max-w-lg bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 p-6">
-                            <h3 className="text-xl font-bold text-foreground mb-1">Cargar Evolución Clínica</h3>
-                            <p className="text-sm text-muted-foreground mb-5">Añade una nueva entrada al registro del paciente.</p>
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+                        <div className="w-full max-w-lg bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 flex flex-col max-h-[100dvh] md:max-h-[90vh]">
+                            <div className="p-6 overflow-y-auto">
+                                <h3 className="text-xl font-bold text-foreground mb-1">Cargar Evolución Clínica</h3>
+                                <p className="text-sm text-muted-foreground mb-5">Añade una nueva entrada al registro del paciente.</p>
 
-                            <form onSubmit={handleCreateHistory} className="space-y-4">
+                                <form onSubmit={handleCreateHistory} className="space-y-4">
                                 <div className="grid grid-cols-3 gap-4">
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium text-foreground">Fecha de la Visita</label>
@@ -1374,6 +1379,7 @@ export function PatientDetails() {
                                     </button>
                                 </div>
                             </form>
+                            </div>
                         </div>
                     </div>
                 )
@@ -1382,8 +1388,8 @@ export function PatientDetails() {
             {/* Modal de Lectura / Edición de Historia Clínica */}
             {
                 selectedHistoryEntry && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                        <div className="w-full max-w-2xl bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 p-6 flex flex-col max-h-[90vh]">
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+                        <div className="w-full max-w-2xl bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 p-6 flex flex-col max-h-[100dvh] md:max-h-[90vh]">
                             {/* Header */}
                             <div className="flex justify-between items-start mb-4 pb-4 border-b border-border/50">
                                 <div>
@@ -1575,7 +1581,7 @@ export function PatientDetails() {
             {
                 selectedCuponera && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 text-left">
-                        <div className="w-full max-w-xl bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 p-6 flex flex-col max-h-[90vh]">
+                        <div className="w-full max-w-xl bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 p-6 flex flex-col max-h-[100dvh] md:max-h-[90vh]">
                             {/* Header */}
                             <div className="flex justify-between items-start mb-4 pb-4 border-b border-border/50">
                                 <div>
