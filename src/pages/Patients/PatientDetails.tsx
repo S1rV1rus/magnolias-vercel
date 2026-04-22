@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { ArrowLeft, Calendar, FileText, CreditCard, Plus, Ticket, CheckCircle2, X, User, Pencil, Trash2, ImageIcon, ChevronLeft, ChevronRight, Play, Pause, Images } from 'lucide-react'
+import { ArrowLeft, Calendar, CalendarDays, FileText, CreditCard, Plus, Ticket, CheckCircle2, X, User, Pencil, Trash2, ImageIcon, ChevronLeft, ChevronRight, Play, Pause, Images, AlertCircle } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
 export function PatientDetails() {
@@ -20,7 +20,10 @@ export function PatientDetails() {
     const [isCuponeraModalOpen, setIsCuponeraModalOpen] = useState(false)
     const [cuponeraForm, setCuponeraForm] = useState({
         service_id: '',
+        cuponera_type: 'sessions' as 'sessions' | 'months',
         total_sessions: 8,
+        total_months: 3,
+        start_date: new Date().toISOString().split('T')[0],
         invoice_number: '',
         amount_paid: ''
     })
@@ -52,7 +55,10 @@ export function PatientDetails() {
     const [isEditingCuponera, setIsEditingCuponera] = useState(false)
     const [confirmDeleteCuponera, setConfirmDeleteCuponera] = useState(false)
     const [editCuponeraForm, setEditCuponeraForm] = useState({
+        cuponera_type: 'sessions' as 'sessions' | 'months',
         total_sessions: 0,
+        total_months: 0,
+        start_date: '',
         invoice_number: '',
         amount_paid: '',
         is_active: true
@@ -185,32 +191,61 @@ export function PatientDetails() {
         e.preventDefault()
         if (!cuponeraForm.service_id || !id) return
 
-        const unpaidApptsForService = appointments.filter(a => a.is_unpaid && a.services?.id === cuponeraForm.service_id)
-        const sessionsToUse = unpaidApptsForService.length
+        const isMonthly = cuponeraForm.cuponera_type === 'months'
 
-        const { data: newCuponera, error } = await supabase.from('cuponeras').insert([{
-            patient_id: id,
-            service_id: cuponeraForm.service_id,
-            total_sessions: cuponeraForm.total_sessions,
-            used_sessions: sessionsToUse,
-            is_active: true,
-            invoice_number: cuponeraForm.invoice_number || null,
-            amount_paid: cuponeraForm.amount_paid ? parseFloat(cuponeraForm.amount_paid) : null
-        }]).select().single()
+        if (isMonthly) {
+            // Monthly cuponera: no debt absorption
+            const { error } = await supabase.from('cuponeras').insert([{
+                patient_id: id,
+                service_id: cuponeraForm.service_id,
+                cuponera_type: 'months',
+                total_months: cuponeraForm.total_months,
+                used_months: 0,
+                start_date: cuponeraForm.start_date,
+                total_sessions: 0,
+                used_sessions: 0,
+                is_active: true,
+                invoice_number: cuponeraForm.invoice_number || null,
+                amount_paid: cuponeraForm.amount_paid ? parseFloat(cuponeraForm.amount_paid) : null
+            }]).select().single()
 
-        if (!error && newCuponera) {
-            if (unpaidApptsForService.length > 0) {
-                await supabase.from('appointments').update({
-                    is_unpaid: false,
-                    cuponera_id: newCuponera.id
-                }).in('id', unpaidApptsForService.map(a => a.id))
+            if (!error) {
+                setIsCuponeraModalOpen(false)
+                setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: new Date().toISOString().split('T')[0], invoice_number: '', amount_paid: '' })
+                loadData()
+            } else {
+                console.error('Error creating monthly cuponera:', error)
             }
-
-            setIsCuponeraModalOpen(false)
-            setCuponeraForm({ service_id: '', total_sessions: 8, invoice_number: '', amount_paid: '' })
-            loadData() // refresh list
         } else {
-            console.error('Error creating cuponera:', error)
+            // Session cuponera: original logic with debt absorption
+            const unpaidApptsForService = appointments.filter(a => a.is_unpaid && a.services?.id === cuponeraForm.service_id)
+            const sessionsToUse = unpaidApptsForService.length
+
+            const { data: newCuponera, error } = await supabase.from('cuponeras').insert([{
+                patient_id: id,
+                service_id: cuponeraForm.service_id,
+                cuponera_type: 'sessions',
+                total_sessions: cuponeraForm.total_sessions,
+                used_sessions: sessionsToUse,
+                is_active: true,
+                invoice_number: cuponeraForm.invoice_number || null,
+                amount_paid: cuponeraForm.amount_paid ? parseFloat(cuponeraForm.amount_paid) : null
+            }]).select().single()
+
+            if (!error && newCuponera) {
+                if (unpaidApptsForService.length > 0) {
+                    await supabase.from('appointments').update({
+                        is_unpaid: false,
+                        cuponera_id: newCuponera.id
+                    }).in('id', unpaidApptsForService.map(a => a.id))
+                }
+
+                setIsCuponeraModalOpen(false)
+                setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: new Date().toISOString().split('T')[0], invoice_number: '', amount_paid: '' })
+                loadData()
+            } else {
+                console.error('Error creating cuponera:', error)
+            }
         }
     }
 
@@ -405,14 +440,22 @@ export function PatientDetails() {
         e.preventDefault()
         if (!selectedCuponera) return
 
+        const isMonthly = editCuponeraForm.cuponera_type === 'months'
+        const updateData: any = {
+            invoice_number: editCuponeraForm.invoice_number || null,
+            amount_paid: editCuponeraForm.amount_paid ? parseFloat(editCuponeraForm.amount_paid) : null,
+            is_active: editCuponeraForm.is_active
+        }
+        if (isMonthly) {
+            updateData.total_months = editCuponeraForm.total_months
+            updateData.start_date = editCuponeraForm.start_date
+        } else {
+            updateData.total_sessions = editCuponeraForm.total_sessions
+        }
+
         const { error } = await supabase
             .from('cuponeras')
-            .update({
-                total_sessions: editCuponeraForm.total_sessions,
-                invoice_number: editCuponeraForm.invoice_number || null,
-                amount_paid: editCuponeraForm.amount_paid ? parseFloat(editCuponeraForm.amount_paid) : null,
-                is_active: editCuponeraForm.is_active
-            })
+            .update(updateData)
             .eq('id', selectedCuponera.id)
 
         if (!error) {
@@ -759,7 +802,10 @@ export function PatientDetails() {
                                                 onClick={() => {
                                                     setSelectedCuponera(item);
                                                     setEditCuponeraForm({
+                                                        cuponera_type: item.cuponera_type || 'sessions',
                                                         total_sessions: item.total_sessions,
+                                                        total_months: item.total_months || 0,
+                                                        start_date: item.start_date || '',
                                                         invoice_number: item.invoice_number || '',
                                                         amount_paid: item.amount_paid?.toString() || '',
                                                         is_active: item.is_active
@@ -775,25 +821,62 @@ export function PatientDetails() {
                                                 <div className="absolute top-0 left-0 w-1.5 h-full bg-primary rounded-l-lg"></div>
                                                 <div className="flex justify-between items-start mb-2 pl-1">
                                                     <div>
-                                                        <span className="text-[10px] font-bold uppercase tracking-wider text-primary mb-1 block">Tratamiento Actual Asignado</span>
+                                                        <span className="text-[10px] font-bold uppercase tracking-wider text-primary mb-1 block">
+                                                            {(item.cuponera_type === 'months') ? 'Pase Mensual Activo' : 'Tratamiento Actual Asignado'}
+                                                        </span>
                                                         <h4 className="font-semibold text-foreground text-base leading-tight group-hover:text-primary transition-colors">{service?.name || "Servicio Genérico"}</h4>
                                                     </div>
                                                     <span className="text-[11px] bg-background px-2.5 py-1 rounded-full border border-border/50 font-medium text-foreground whitespace-nowrap shadow-sm">
-                                                        Sesiones: {item.used_sessions} / {item.total_sessions}
+                                                        {(item.cuponera_type === 'months')
+                                                            ? `Mes ${(item.used_months || 0)} / ${item.total_months}`
+                                                            : `Sesiones: ${item.used_sessions} / ${item.total_sessions}`
+                                                        }
                                                     </span>
                                                 </div>
                                                 <div className="pl-1 mt-3">
                                                     <p className="text-[13px] text-muted-foreground mb-3">
-                                                        Adquirido el {new Date(item.created_at).toLocaleDateString('es-AR') + ' ' + new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                                                        {(item.cuponera_type === 'months')
+                                                            ? `Inicio: ${new Date(item.start_date + 'T12:00:00').toLocaleDateString('es-AR')}`
+                                                            : `Adquirido el ${new Date(item.created_at).toLocaleDateString('es-AR') + ' ' + new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`
+                                                        }
                                                     </p>
+
+                                                    {/* Aviso vencimiento próximo (cuponeras mensuales) */}
+                                                    {item.cuponera_type === 'months' && item.start_date && item.total_months && (() => {
+                                                        const endDate = new Date(item.start_date + 'T12:00:00')
+                                                        endDate.setMonth(endDate.getMonth() + item.total_months)
+                                                        const daysLeft = Math.ceil((endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                                                        if (daysLeft <= 0) return (
+                                                            <div className="mb-3 bg-red-500/10 border border-red-500/20 rounded-lg p-2.5 flex items-center gap-2">
+                                                                <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                                                                <span className="text-xs text-red-600 dark:text-red-400 font-medium">Pase vencido</span>
+                                                            </div>
+                                                        )
+                                                        if (daysLeft <= 7) return (
+                                                            <div className="mb-3 bg-amber-500/10 border border-amber-500/20 rounded-lg p-2.5 flex items-center gap-2">
+                                                                <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                                                                <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                                                                    ¡Vence en {daysLeft} día{daysLeft !== 1 ? 's' : ''}! — {endDate.toLocaleDateString('es-AR')}
+                                                                </span>
+                                                            </div>
+                                                        )
+                                                        return (
+                                                            <p className="text-[11px] text-muted-foreground mb-3">
+                                                                Vence el {endDate.toLocaleDateString('es-AR')} — Quedan {daysLeft} días
+                                                            </p>
+                                                        )
+                                                    })()}
 
                                                     {/* Progress bar */}
                                                     {(() => {
-                                                        const pct = item.total_sessions > 0 ? item.used_sessions / item.total_sessions : 0
+                                                        const isMonthly = item.cuponera_type === 'months'
+                                                        const used = isMonthly ? (item.used_months || 0) : item.used_sessions
+                                                        const total = isMonthly ? (item.total_months || 1) : item.total_sessions
+                                                        const pct = total > 0 ? used / total : 0
                                                         return (
                                                             <div className="mb-3">
                                                                 <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
-                                                                    <span>{item.used_sessions} de {item.total_sessions} sesiones usadas</span>
+                                                                    <span>{used} de {total} {isMonthly ? 'meses transcurridos' : 'sesiones usadas'}</span>
                                                                     <span>{Math.round(pct * 100)}%</span>
                                                                 </div>
                                                                 <div className="w-full h-1.5 bg-muted/50 rounded-full overflow-hidden">
@@ -1017,10 +1100,11 @@ export function PatientDetails() {
                             ) : (
                                 cuponeras.map(cup => {
                                     const service = Array.isArray(cup.services) ? cup.services[0] : cup.services
-                                    const available = cup.total_sessions - cup.used_sessions
+                                    const isMonthly = cup.cuponera_type === 'months'
+                                    const available = isMonthly ? (cup.total_months || 0) - (cup.used_months || 0) : cup.total_sessions - cup.used_sessions
                                     const isExhausted = available <= 0
 
-                                    const cuponeraRedemptions = [
+                                    const cuponeraRedemptions = isMonthly ? [] : [
                                         ...appointments.filter(a => a.cuponera_id === cup.id).map(a => ({
                                             id: a.id,
                                             date: new Date(a.start_time),
@@ -1037,6 +1121,14 @@ export function PatientDetails() {
                                         }))
                                     ].sort((a, b) => a.date.getTime() - b.date.getTime());
 
+                                    // Calculate end date for monthly cuponeras
+                                    const endDate = isMonthly && cup.start_date ? (() => {
+                                        const d = new Date(cup.start_date + 'T12:00:00')
+                                        d.setMonth(d.getMonth() + (cup.total_months || 0))
+                                        return d
+                                    })() : null
+                                    const daysLeft = endDate ? Math.ceil((endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null
+
                                     return (
                                         <div key={cup.id} className={cn(
                                             "border rounded-xl p-5 flex flex-col justify-between transition-opacity",
@@ -1044,56 +1136,105 @@ export function PatientDetails() {
                                         )}>
                                             <div>
                                                 <div className="flex justify-between items-start mb-2">
-                                                    <h4 className="font-semibold text-foreground truncate pl-1">{service?.name || "Servicio Genérico"}</h4>
+                                                    <div className="flex items-center gap-2">
+                                                        {isMonthly && <CalendarDays className="w-4 h-4 text-primary flex-shrink-0" />}
+                                                        <h4 className="font-semibold text-foreground truncate">{service?.name || "Servicio Genérico"}</h4>
+                                                    </div>
                                                     {isExhausted ? (
-                                                        <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-1 bg-red-500/10 text-red-500 rounded border border-red-500/20">Agotada</span>
+                                                        <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-1 bg-red-500/10 text-red-500 rounded border border-red-500/20">{isMonthly ? 'Vencida' : 'Agotada'}</span>
                                                     ) : (
-                                                        <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-1 bg-green-500/10 text-green-500 rounded border border-green-500/20">Activa</span>
+                                                        <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-1 bg-green-500/10 text-green-500 rounded border border-green-500/20">{isMonthly ? 'Pase Mensual' : 'Activa'}</span>
                                                     )}
                                                 </div>
                                                 <p className="text-xs text-muted-foreground mb-4 pl-1">
-                                                    Adquirida el {new Date(cup.created_at).toLocaleDateString('es-AR')}
+                                                    {isMonthly
+                                                        ? `Inicio: ${new Date(cup.start_date + 'T12:00:00').toLocaleDateString('es-AR')}`
+                                                        : `Adquirida el ${new Date(cup.created_at).toLocaleDateString('es-AR')}`
+                                                    }
                                                 </p>
 
-                                                <div className="bg-muted p-3 flex items-center justify-between rounded-lg">
-                                                    <div className="text-center w-full">
-                                                        <span className="block text-2xl font-bold text-foreground leading-none">{available}</span>
-                                                        <span className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1 block">Disponibles</span>
+                                                {/* Aviso vencimiento próximo (mensual) */}
+                                                {isMonthly && daysLeft !== null && daysLeft > 0 && daysLeft <= 7 && (
+                                                    <div className="mb-3 bg-amber-500/10 border border-amber-500/20 rounded-lg p-2.5 flex items-center gap-2">
+                                                        <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                                                        <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                                                            ¡Vence en {daysLeft} día{daysLeft !== 1 ? 's' : ''}!
+                                                        </span>
                                                     </div>
-                                                    <div className="w-px h-8 bg-border"></div>
-                                                    <div className="text-center w-full">
-                                                        <span className="block text-2xl font-bold text-foreground leading-none">{cup.used_sessions}</span>
-                                                        <span className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1 block">Usadas</span>
+                                                )}
+
+                                                {isMonthly ? (
+                                                    /* Monthly stats display */
+                                                    <div className="bg-muted p-3 flex items-center justify-between rounded-lg">
+                                                        <div className="text-center w-full">
+                                                            <span className="block text-2xl font-bold text-foreground leading-none">{available}</span>
+                                                            <span className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1 block">Meses Restantes</span>
+                                                        </div>
+                                                        <div className="w-px h-8 bg-border"></div>
+                                                        <div className="text-center w-full">
+                                                            <span className="block text-2xl font-bold text-foreground leading-none">{cup.used_months || 0}</span>
+                                                            <span className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1 block">Transcurridos</span>
+                                                        </div>
+                                                        <div className="w-px h-8 bg-border"></div>
+                                                        <div className="text-center w-full">
+                                                            <span className="block text-xl font-medium text-muted-foreground/50 leading-none">{cup.total_months}</span>
+                                                            <span className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1 block">Total</span>
+                                                        </div>
                                                     </div>
-                                                    <div className="w-px h-8 bg-border"></div>
-                                                    <div className="text-center w-full">
-                                                        <span className="block text-xl font-medium text-muted-foreground/50 leading-none">{cup.total_sessions}</span>
-                                                        <span className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1 block">Total</span>
+                                                ) : (
+                                                    /* Session stats display */
+                                                    <div className="bg-muted p-3 flex items-center justify-between rounded-lg">
+                                                        <div className="text-center w-full">
+                                                            <span className="block text-2xl font-bold text-foreground leading-none">{available}</span>
+                                                            <span className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1 block">Disponibles</span>
+                                                        </div>
+                                                        <div className="w-px h-8 bg-border"></div>
+                                                        <div className="text-center w-full">
+                                                            <span className="block text-2xl font-bold text-foreground leading-none">{cup.used_sessions}</span>
+                                                            <span className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1 block">Usadas</span>
+                                                        </div>
+                                                        <div className="w-px h-8 bg-border"></div>
+                                                        <div className="text-center w-full">
+                                                            <span className="block text-xl font-medium text-muted-foreground/50 leading-none">{cup.total_sessions}</span>
+                                                            <span className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1 block">Total</span>
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                )}
 
                                                 {/* Progress bar */}
-                                                <div className="mt-3">
-                                                    <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
-                                                        <span>{cup.used_sessions} de {cup.total_sessions} sesiones usadas</span>
-                                                        <span>{Math.round((cup.used_sessions / cup.total_sessions) * 100)}%</span>
-                                                    </div>
-                                                    <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-                                                        <div
-                                                            className={cn(
-                                                                "h-full rounded-full transition-all duration-500",
-                                                                isExhausted || (cup.used_sessions / cup.total_sessions) > 0.75
-                                                                    ? "bg-red-500"
-                                                                    : (cup.used_sessions / cup.total_sessions) > 0.5
-                                                                        ? "bg-amber-500"
-                                                                        : "bg-green-500"
+                                                {(() => {
+                                                    const used = isMonthly ? (cup.used_months || 0) : cup.used_sessions
+                                                    const total = isMonthly ? (cup.total_months || 1) : cup.total_sessions
+                                                    const pct = total > 0 ? used / total : 0
+                                                    return (
+                                                        <div className="mt-3">
+                                                            <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
+                                                                <span>{used} de {total} {isMonthly ? 'meses' : 'sesiones'}</span>
+                                                                <span>{Math.round(pct * 100)}%</span>
+                                                            </div>
+                                                            <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                                                                <div
+                                                                    className={cn(
+                                                                        "h-full rounded-full transition-all duration-500",
+                                                                        isExhausted || pct > 0.75
+                                                                            ? "bg-red-500"
+                                                                            : pct > 0.5
+                                                                                ? "bg-amber-500"
+                                                                                : "bg-green-500"
+                                                                    )}
+                                                                    style={{ width: `${Math.min(100, pct * 100)}%` }}
+                                                                />
+                                                            </div>
+                                                            {isMonthly && endDate && (
+                                                                <p className="text-[10px] text-muted-foreground mt-1.5">
+                                                                    Vence: {endDate.toLocaleDateString('es-AR')}
+                                                                </p>
                                                             )}
-                                                            style={{ width: `${Math.min(100, (cup.used_sessions / cup.total_sessions) * 100)}%` }}
-                                                        />
-                                                    </div>
-                                                </div>
+                                                        </div>
+                                                    )
+                                                })()}
 
-                                                {cuponeraRedemptions.length > 0 && (
+                                                {!isMonthly && cuponeraRedemptions.length > 0 && (
                                                     <div className="mt-4 pt-4 border-t border-border/50">
                                                         <p className="text-[10px] font-semibold text-muted-foreground mb-2 uppercase tracking-wider">Sesiones Consumidas ({cuponeraRedemptions.length})</p>
                                                         <div className="space-y-2 max-h-32 overflow-y-auto pr-1">
@@ -1119,18 +1260,21 @@ export function PatientDetails() {
                                                 )}
                                             </div>
 
-                                            <button
-                                                onClick={() => handleUseSession(cup)}
-                                                disabled={isExhausted}
-                                                className={cn(
-                                                    "mt-4 w-full flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-colors border cursor-pointer disabled:cursor-not-allowed",
-                                                    isExhausted
-                                                        ? "bg-transparent text-muted-foreground border-border/50"
-                                                        : "bg-background hover:bg-muted text-foreground border-border hover:border-primary/50"
-                                                )}
-                                            >
-                                                {isExhausted ? 'Sin sesiones' : <><CheckCircle2 className="w-4 h-4 text-green-500" /> Consumir 1 Sesión</>}
-                                            </button>
+                                            {/* Only show "Consumir Sesión" button for session-type cuponeras */}
+                                            {!isMonthly && (
+                                                <button
+                                                    onClick={() => handleUseSession(cup)}
+                                                    disabled={isExhausted}
+                                                    className={cn(
+                                                        "mt-4 w-full flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-colors border cursor-pointer disabled:cursor-not-allowed",
+                                                        isExhausted
+                                                            ? "bg-transparent text-muted-foreground border-border/50"
+                                                            : "bg-background hover:bg-muted text-foreground border-border hover:border-primary/50"
+                                                    )}
+                                                >
+                                                    {isExhausted ? 'Sin sesiones' : <><CheckCircle2 className="w-4 h-4 text-green-500" /> Consumir 1 Sesión</>}
+                                                </button>
+                                            )}
                                         </div>
                                     )
                                 })
@@ -1146,9 +1290,41 @@ export function PatientDetails() {
                     <div className="w-full max-w-sm bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 flex flex-col max-h-[100dvh] md:max-h-[90vh]">
                         <div className="p-6 overflow-y-auto">
                             <h3 className="text-lg font-bold text-foreground mb-1">Vender Cuponera</h3>
-                            <p className="text-sm text-muted-foreground mb-5">Asigna un paquete de sesiones al cliente.</p>
+                            <p className="text-sm text-muted-foreground mb-5">Asigna un paquete de sesiones o un pase mensual al cliente.</p>
 
                             <form onSubmit={handleCreateCuponera} className="space-y-4">
+
+                            {/* Type toggle */}
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-foreground">Tipo de Cuponera</label>
+                                <div className="flex bg-muted rounded-lg p-1 gap-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => setCuponeraForm({ ...cuponeraForm, cuponera_type: 'sessions' })}
+                                        className={cn(
+                                            "flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all cursor-pointer",
+                                            cuponeraForm.cuponera_type === 'sessions'
+                                                ? "bg-background text-foreground shadow-sm"
+                                                : "text-muted-foreground hover:text-foreground"
+                                        )}
+                                    >
+                                        Por Sesiones
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCuponeraForm({ ...cuponeraForm, cuponera_type: 'months' })}
+                                        className={cn(
+                                            "flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all cursor-pointer",
+                                            cuponeraForm.cuponera_type === 'months'
+                                                ? "bg-background text-foreground shadow-sm"
+                                                : "text-muted-foreground hover:text-foreground"
+                                        )}
+                                    >
+                                        Por Meses
+                                    </button>
+                                </div>
+                            </div>
+
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-foreground">Tratamiento</label>
                                 <select
@@ -1164,18 +1340,45 @@ export function PatientDetails() {
                                 </select>
                             </div>
 
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-foreground">Cant. Sesiones</label>
-                                <input
-                                    type="number"
-                                    required
-                                    min="1"
-                                    max="50"
-                                    className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
-                                    value={cuponeraForm.total_sessions}
-                                    onChange={e => setCuponeraForm({ ...cuponeraForm, total_sessions: parseInt(e.target.value) })}
-                                />
-                            </div>
+                            {cuponeraForm.cuponera_type === 'sessions' ? (
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-foreground">Cant. Sesiones</label>
+                                    <input
+                                        type="number"
+                                        required
+                                        min="1"
+                                        max="50"
+                                        className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                        value={cuponeraForm.total_sessions}
+                                        onChange={e => setCuponeraForm({ ...cuponeraForm, total_sessions: parseInt(e.target.value) })}
+                                    />
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-foreground">Cant. Meses</label>
+                                        <input
+                                            type="number"
+                                            required
+                                            min="1"
+                                            max="24"
+                                            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                            value={cuponeraForm.total_months}
+                                            onChange={e => setCuponeraForm({ ...cuponeraForm, total_months: parseInt(e.target.value) })}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-foreground">Fecha de Inicio</label>
+                                        <input
+                                            type="date"
+                                            required
+                                            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                            value={cuponeraForm.start_date}
+                                            onChange={e => setCuponeraForm({ ...cuponeraForm, start_date: e.target.value })}
+                                        />
+                                    </div>
+                                </>
+                            )}
                             <div className="pt-2 border-t border-border mt-6"></div>
 
                             <div className="space-y-4 mt-4">
@@ -1678,9 +1881,14 @@ export function PatientDetails() {
                                 <div className="space-y-6 overflow-y-auto flex-1">
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
-                                            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Sesiones</h4>
+                                            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                                                {(selectedCuponera.cuponera_type === 'months') ? 'Meses' : 'Sesiones'}
+                                            </h4>
                                             <p className="text-lg font-bold text-foreground">
-                                                {selectedCuponera.used_sessions} / {selectedCuponera.total_sessions}
+                                                {(selectedCuponera.cuponera_type === 'months')
+                                                    ? `${selectedCuponera.used_months || 0} / ${selectedCuponera.total_months}`
+                                                    : `${selectedCuponera.used_sessions} / ${selectedCuponera.total_sessions}`
+                                                }
                                             </p>
                                         </div>
                                         <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
@@ -1704,6 +1912,26 @@ export function PatientDetails() {
                                                 {selectedCuponera.is_active ? 'Activa' : 'Inactiva'}
                                             </span>
                                         </div>
+                                        {selectedCuponera.cuponera_type === 'months' && selectedCuponera.start_date && (
+                                            <>
+                                                <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
+                                                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Fecha Inicio</h4>
+                                                    <p className="text-lg font-bold text-foreground">
+                                                        {new Date(selectedCuponera.start_date + 'T12:00:00').toLocaleDateString('es-AR')}
+                                                    </p>
+                                                </div>
+                                                <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
+                                                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Fecha Vencimiento</h4>
+                                                    <p className="text-lg font-bold text-foreground">
+                                                        {(() => {
+                                                            const d = new Date(selectedCuponera.start_date + 'T12:00:00')
+                                                            d.setMonth(d.getMonth() + (selectedCuponera.total_months || 0))
+                                                            return d.toLocaleDateString('es-AR')
+                                                        })()}
+                                                    </p>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
 
                                     <div className="flex justify-end gap-3 pt-4 border-t border-border/50">
@@ -1744,16 +1972,43 @@ export function PatientDetails() {
                             {isEditingCuponera && (
                                 <form onSubmit={handleUpdateCuponera} className="space-y-4">
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <label className="text-sm font-medium text-foreground">Total de Sesiones</label>
-                                            <input
-                                                type="number"
-                                                required
-                                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
-                                                value={editCuponeraForm.total_sessions}
-                                                onChange={e => setEditCuponeraForm({...editCuponeraForm, total_sessions: parseInt(e.target.value)})}
-                                            />
-                                        </div>
+                                        {editCuponeraForm.cuponera_type === 'months' ? (
+                                            <>
+                                                <div className="space-y-2">
+                                                    <label className="text-sm font-medium text-foreground">Total de Meses</label>
+                                                    <input
+                                                        type="number"
+                                                        required
+                                                        min="1"
+                                                        max="24"
+                                                        className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                                        value={editCuponeraForm.total_months}
+                                                        onChange={e => setEditCuponeraForm({...editCuponeraForm, total_months: parseInt(e.target.value)})}
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="text-sm font-medium text-foreground">Fecha de Inicio</label>
+                                                    <input
+                                                        type="date"
+                                                        required
+                                                        className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                                        value={editCuponeraForm.start_date}
+                                                        onChange={e => setEditCuponeraForm({...editCuponeraForm, start_date: e.target.value})}
+                                                    />
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                <label className="text-sm font-medium text-foreground">Total de Sesiones</label>
+                                                <input
+                                                    type="number"
+                                                    required
+                                                    className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                                    value={editCuponeraForm.total_sessions}
+                                                    onChange={e => setEditCuponeraForm({...editCuponeraForm, total_sessions: parseInt(e.target.value)})}
+                                                />
+                                            </div>
+                                        )}
                                         <div className="space-y-2">
                                             <label className="text-sm font-medium text-foreground">Factura #</label>
                                             <input
