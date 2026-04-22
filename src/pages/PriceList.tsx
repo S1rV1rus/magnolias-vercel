@@ -119,9 +119,10 @@ export function PriceList() {
     }
 
     const filtered = packs.filter(p => {
-        const q = search.toLowerCase()
-        const serviceName = (p.services?.name || '').toLowerCase()
-        return p.name.toLowerCase().includes(q) || serviceName.includes(q)
+        const normalize = (str: string) => str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : ""
+        const searchTerms = normalize(search).split(' ').filter(Boolean)
+        const haystack = normalize(`${p.name} ${p.services?.name || ''}`)
+        return searchTerms.every(term => haystack.includes(term))
     })
 
     // Group by service

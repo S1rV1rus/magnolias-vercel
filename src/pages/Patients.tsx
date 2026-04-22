@@ -109,8 +109,10 @@ export function Patients() {
 
     // Filter patients
     const filteredPatients = patients.filter(p => {
-        const full = `${p.first_name} ${p.last_name} ${p.document_id}`.toLowerCase()
-        return full.includes(searchTerm.toLowerCase())
+        const normalize = (str: string) => str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : ""
+        const full = normalize(`${p.first_name} ${p.last_name} ${p.document_id || ''}`)
+        const searchTerms = normalize(searchTerm).split(' ').filter(Boolean)
+        return searchTerms.every(term => full.includes(term))
     })
 
     return (

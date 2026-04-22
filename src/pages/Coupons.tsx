@@ -25,8 +25,10 @@ function PatientSearchInput({
 
     const filtered = query.trim()
         ? patients.filter(p => {
-            const haystack = `${p.first_name} ${p.last_name} ${p.document_id ?? ''}`.toLowerCase()
-            return haystack.includes(query.toLowerCase())
+            const normalize = (str: string) => str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : ""
+            const haystack = normalize(`${p.first_name} ${p.last_name} ${p.document_id || ''}`)
+            const searchTerms = normalize(query).split(' ').filter(Boolean)
+            return searchTerms.every(term => haystack.includes(term))
         })
         : patients
 
@@ -239,10 +241,10 @@ export function Coupons() {
 
 
     const filteredCuponeras = cuponeras.filter(c => {
-        const patientName = `${c.patients?.first_name} ${c.patients?.last_name}`.toLowerCase()
-        const patientDoc = c.patients?.document_id?.toLowerCase() || ''
-        const query = searchQuery.toLowerCase()
-        return patientName.includes(query) || patientDoc.includes(query)
+        const normalize = (str: string) => str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : ""
+        const haystack = normalize(`${c.patients?.first_name} ${c.patients?.last_name} ${c.patients?.document_id || ''}`)
+        const searchTerms = normalize(searchQuery).split(' ').filter(Boolean)
+        return searchTerms.every(term => haystack.includes(term))
     })
 
     if (loading) {
