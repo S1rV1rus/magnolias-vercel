@@ -57,6 +57,14 @@ export function PatientDetails() {
         amount_paid: '',
         is_active: true
     })
+    
+    // Modal Saldar Deuda
+    const [isDebtModalOpen, setIsDebtModalOpen] = useState(false)
+    const [debtPaymentForm, setDebtPaymentForm] = useState({
+        amount_paid: '',
+        receipt_number: ''
+    })
+
     const [historyForm, setHistoryForm] = useState({
         service_type: '',
         professional_id: '',
@@ -156,9 +164,9 @@ export function PatientDetails() {
         const { data: aData } = await supabase
             .from('appointments')
             .select(`
-                id, start_time, end_time, status, notes, cuponera_id,
+                id, start_time, end_time, status, notes, cuponera_id, is_unpaid, payment_amount, receipt_number,
                 appointment_patients!inner(patient_id),
-                services(name),
+                services(id, name),
                 professionals(first_name, last_name)
             `)
             .eq('appointment_patients.patient_id', id)
@@ -177,22 +185,55 @@ export function PatientDetails() {
         e.preventDefault()
         if (!cuponeraForm.service_id || !id) return
 
-        const { error } = await supabase.from('cuponeras').insert([{
+        const unpaidApptsForService = appointments.filter(a => a.is_unpaid && a.services?.id === cuponeraForm.service_id)
+        const sessionsToUse = unpaidApptsForService.length
+
+        const { data: newCuponera, error } = await supabase.from('cuponeras').insert([{
             patient_id: id,
             service_id: cuponeraForm.service_id,
             total_sessions: cuponeraForm.total_sessions,
-            used_sessions: 0,
+            used_sessions: sessionsToUse,
             is_active: true,
             invoice_number: cuponeraForm.invoice_number || null,
             amount_paid: cuponeraForm.amount_paid ? parseFloat(cuponeraForm.amount_paid) : null
-        }])
+        }]).select().single()
 
-        if (!error) {
+        if (!error && newCuponera) {
+            if (unpaidApptsForService.length > 0) {
+                await supabase.from('appointments').update({
+                    is_unpaid: false,
+                    cuponera_id: newCuponera.id
+                }).in('id', unpaidApptsForService.map(a => a.id))
+            }
+
             setIsCuponeraModalOpen(false)
             setCuponeraForm({ service_id: '', total_sessions: 8, invoice_number: '', amount_paid: '' })
             loadData() // refresh list
         } else {
             console.error('Error creating cuponera:', error)
+        }
+    }
+
+    const handlePayDirectDebt = async (e: React.FormEvent) => {
+        e.preventDefault()
+        const unpaidAppts = appointments.filter(a => a.is_unpaid)
+        if (unpaidAppts.length === 0) return
+
+        const { error } = await supabase
+            .from('appointments')
+            .update({
+                is_unpaid: false,
+                payment_amount: debtPaymentForm.amount_paid ? parseFloat(debtPaymentForm.amount_paid) : null,
+                receipt_number: debtPaymentForm.receipt_number || null
+            })
+            .in('id', unpaidAppts.map(a => a.id))
+
+        if (!error) {
+            setIsDebtModalOpen(false)
+            setDebtPaymentForm({ amount_paid: '', receipt_number: '' })
+            loadData()
+        } else {
+            console.error('Error paying debt:', error)
         }
     }
 
@@ -446,8 +487,34 @@ export function PatientDetails() {
         { id: 'pagos', name: 'Cuponeras y Pagos', icon: CreditCard },
     ]
 
+    const unpaidAppointments = appointments.filter(a => a.is_unpaid)
+    const hasDebt = unpaidAppointments.length > 0
+
     return (
         <div className="flex flex-col gap-6 w-full animate-in fade-in duration-500 relative">
+            {/* Debt Banner */}
+            {hasDebt && (
+                <div className="bg-destructive/10 border border-destructive/20 p-4 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm animate-in slide-in-from-top-4">
+                    <div className="flex items-center gap-3">
+                        <div className="bg-destructive/20 p-2 rounded-full">
+                            <CreditCard className="w-5 h-5 text-destructive" />
+                        </div>
+                        <div>
+                            <h3 className="text-destructive font-bold text-sm tracking-tight">ATENCIÓN: Paciente con Deuda</h3>
+                            <p className="text-destructive/80 text-xs mt-0.5">
+                                Este paciente tiene {unpaidAppointments.length} sesión(es) impaga(s).
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={() => setIsDebtModalOpen(true)}
+                        className="w-full sm:w-auto bg-destructive hover:bg-destructive/90 text-destructive-foreground px-4 py-2 rounded-md font-medium text-sm transition-colors shadow-sm cursor-pointer whitespace-nowrap"
+                    >
+                        Saldar Deuda
+                    </button>
+                </div>
+            )}
+
             {/* Header */}
             <div className="flex items-center gap-4 border-b border-border pb-6">
                 <button
@@ -657,12 +724,14 @@ export function PatientDetails() {
                             <div className="space-y-4">
                                 {[
                                     ...cuponeras.filter(c => c.total_sessions - c.used_sessions > 0).map(c => ({ ...c, type: 'cuponera', sortDate: c.created_at })),
-                                    ...historyEntries.map(h => ({ 
-                                        ...h, 
-                                        type: 'history', 
-                                        sortDate: h.created_at,
-                                        notes: h.notes?.replace(/\[CUPONERA:[^\]]+\]\s*/g, '')
-                                    })),
+                                    ...historyEntries
+                                        .filter(h => !h.notes?.includes('[CUPONERA:'))
+                                        .map(h => ({ 
+                                            ...h, 
+                                            type: 'history', 
+                                            sortDate: h.created_at,
+                                            notes: h.notes
+                                        })),
                                     ...appointments.filter(a => a.notes?.trim() && !a.cuponera_id).map(a => ({ ...a, type: 'appointment', sortDate: a.start_time }))
                                 ].sort((a, b) => new Date(b.sortDate).getTime() - new Date(a.sortDate).getTime()).map(item => {
                                     if (item.type === 'cuponera') {
@@ -1738,6 +1807,84 @@ export function PatientDetails() {
                     </div>
                 )
             }
+
+            {/* Modal Saldar Deuda */}
+            {isDebtModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="flex justify-between items-center p-4 border-b border-border/50 bg-muted/30">
+                            <h3 className="font-semibold text-foreground flex items-center gap-2">
+                                <CreditCard className="w-5 h-5 text-primary" /> Saldar Deuda
+                            </h3>
+                            <button
+                                onClick={() => setIsDebtModalOpen(false)}
+                                className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        
+                        <div className="p-5 space-y-5">
+                            <div className="bg-muted p-4 rounded-lg">
+                                <p className="text-sm text-foreground">
+                                    El paciente registra <strong>{unpaidAppointments.length} sesión(es) impaga(s)</strong>.
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Puedes registrar el pago directo de la deuda, o generar una nueva cuponera que automáticamente absorberá las sesiones correspondientes al mismo servicio.
+                                </p>
+                            </div>
+
+                            <form onSubmit={handlePayDirectDebt} className="space-y-4">
+                                <h4 className="text-sm font-semibold text-foreground pb-2 border-b border-border/40">Pago Directo</h4>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-medium text-foreground">Monto Abonado (opcional)</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                            value={debtPaymentForm.amount_paid}
+                                            onChange={e => setDebtPaymentForm({...debtPaymentForm, amount_paid: e.target.value})}
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-medium text-foreground">N° Comprobante (opcional)</label>
+                                        <input
+                                            type="text"
+                                            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                            value={debtPaymentForm.receipt_number}
+                                            onChange={e => setDebtPaymentForm({...debtPaymentForm, receipt_number: e.target.value})}
+                                            placeholder="Opcional"
+                                        />
+                                    </div>
+                                </div>
+                                
+                                <button
+                                    type="submit"
+                                    className="w-full py-2.5 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow-sm hover:bg-primary/90 transition-colors cursor-pointer"
+                                >
+                                    Registrar Pago
+                                </button>
+                            </form>
+
+                            <div className="pt-4 border-t border-border/40">
+                                <h4 className="text-sm font-semibold text-foreground mb-3">Saldar con Nueva Cuponera</h4>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIsDebtModalOpen(false);
+                                        setIsCuponeraModalOpen(true);
+                                    }}
+                                    className="w-full py-2.5 text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground text-foreground rounded-md shadow-sm transition-colors cursor-pointer flex items-center justify-center gap-2"
+                                >
+                                    <Ticket className="w-4 h-4" /> Crear Cuponera
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* ---- Lightbox ---- */}
             {lightboxUrl && (

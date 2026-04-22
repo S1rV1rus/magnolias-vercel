@@ -35,7 +35,17 @@ export function Patients() {
 
     async function fetchPatients() {
         const { data } = await supabase.from('patients').select('*').order('created_at', { ascending: false })
-        if (data) setPatients(data)
+        if (data) {
+            // Check debt for patients
+            const { data: debtData } = await supabase.from('appointments').select('patient_id').eq('is_unpaid', true)
+            const debtors = new Set(debtData?.map(d => d.patient_id))
+            
+            const mapped = data.map(p => ({
+                ...p,
+                has_debt: debtors.has(p.id)
+            }))
+            setPatients(mapped)
+        }
     }
 
     const openCreate = () => {
@@ -140,7 +150,14 @@ export function Patients() {
                         <div key={patient.id} className="bg-card border border-border/50 rounded-lg p-4 shadow-sm">
                             <div className="flex items-start justify-between gap-2">
                                 <div>
-                                    <p className="font-semibold text-card-foreground">{patient.first_name} {patient.last_name}</p>
+                                    <p className="font-semibold text-card-foreground flex items-center flex-wrap gap-2">
+                                        {patient.first_name} {patient.last_name}
+                                        {patient.has_debt && (
+                                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-500/10 text-red-600 border border-red-500/20 uppercase tracking-wider">
+                                                Deuda
+                                            </span>
+                                        )}
+                                    </p>
                                     <p className="text-sm text-muted-foreground mt-0.5">CI: {patient.document_id}</p>
                                     {patient.phone && <p className="text-sm text-muted-foreground">{patient.phone}</p>}
                                     {patient.email && <p className="text-sm text-muted-foreground truncate">{patient.email}</p>}
@@ -187,7 +204,14 @@ export function Patients() {
                             filteredPatients.map(patient => (
                                 <tr key={patient.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors bg-card">
                                     <td className="px-5 py-4 font-medium text-card-foreground">
-                                        {patient.first_name} {patient.last_name}
+                                        <div className="flex items-center gap-2">
+                                            {patient.first_name} {patient.last_name}
+                                            {patient.has_debt && (
+                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-500/10 text-red-600 border border-red-500/20 uppercase tracking-wider">
+                                                    Deuda
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
                                     <td className="px-5 py-4 text-muted-foreground">{patient.document_id}</td>
                                     <td className="px-5 py-4 text-muted-foreground">{patient.phone || '-'}</td>

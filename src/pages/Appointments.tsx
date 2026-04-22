@@ -234,10 +234,17 @@ function AppointmentEvent({ event }: { event: any }) {
             <span className="text-[10px] truncate opacity-75">
                 {professional?.first_name} {professional?.last_name}
             </span>
-            <div
-                className="absolute bottom-1 right-1 w-2.5 h-2.5 rounded-full border-[1.5px] border-white shadow-sm"
-                style={{ backgroundColor: getStatusColor(event.status) }}
-            />
+            <div className="absolute bottom-1 right-1 flex items-center gap-1">
+                {event.raw.app?.is_unpaid && (
+                    <span className="text-[9px] font-bold text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-950/50 px-1 rounded-sm border border-red-200 dark:border-red-900 shadow-sm leading-tight">
+                        DEUDA
+                    </span>
+                )}
+                <div
+                    className="w-2.5 h-2.5 rounded-full border-[1.5px] border-white shadow-sm"
+                    style={{ backgroundColor: getStatusColor(event.status) }}
+                />
+            </div>
         </div>
     )
 }
@@ -396,6 +403,7 @@ export function Appointments() {
         time: format(roundToNearest30(new Date()), 'HH:mm'),
         status: 'pendiente',
         notes: '',
+        is_unpaid: false,
     })
 
     const [activeCuponera, setActiveCuponera] = useState<any>(null)
@@ -441,7 +449,7 @@ export function Appointments() {
         const { data: appts } = await supabase
             .from('appointments')
             .select(`
-                id, start_time, end_time, status, room_id, cuponera_id, notes,
+                id, start_time, end_time, status, room_id, cuponera_id, notes, is_unpaid,
                 appointment_patients(patients(id, first_name, last_name)),
                 services(id, name, duration_minutes),
                 professionals(id, first_name, last_name, color),
@@ -505,6 +513,7 @@ export function Appointments() {
             time: format(targetDate, 'HH:mm'),
             status: 'pendiente',
             notes: '',
+            is_unpaid: false,
         })
         setIsModalOpen(true)
     }
@@ -527,7 +536,8 @@ export function Appointments() {
             professional_id: profId, 
             room_id: roomId,
             patient_ids: existingIds.length ? existingIds : [''],
-            notes: event.raw.app?.notes || ''
+            notes: event.raw.app?.notes || '',
+            is_unpaid: event.raw.app?.is_unpaid || false
         }))
         setIsModalOpen(true)
     }, [])
@@ -575,7 +585,8 @@ export function Appointments() {
             const newStatus = formData.status
             const updatePayload: Record<string, any> = { 
                 status: newStatus,
-                notes: formData.notes 
+                notes: formData.notes,
+                is_unpaid: newStatus === 'completado' ? formData.is_unpaid : false
             }
             if (formData.professional_id) updatePayload.professional_id = formData.professional_id
             if (formData.room_id) updatePayload.room_id = formData.room_id
@@ -683,6 +694,7 @@ export function Appointments() {
             status: formData.status,
             notes: formData.notes,
             cuponera_id: activeCuponera?.id || null,
+            is_unpaid: formData.status === 'completado' ? formData.is_unpaid : false,
         }]).select('id').single()
 
         if (!error && newAppt) {
@@ -991,8 +1003,24 @@ export function Appointments() {
                                             <option value="confirmado">Confirmado</option>
                                             <option value="cancelado">Cancelado</option>
                                             <option value="cancelado_tarde">Cancelado con penalidad</option>
+                                            <option value="completado">Completado</option>
                                         </select>
                                     </div>
+                                    
+                                    {formData.status === 'completado' && !activeCuponera && (
+                                        <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-md">
+                                            <input
+                                                type="checkbox"
+                                                id="is_unpaid_edit"
+                                                checked={formData.is_unpaid}
+                                                onChange={e => setFormData({ ...formData, is_unpaid: e.target.checked })}
+                                                className="w-4 h-4 rounded border-red-500/50 text-red-600 focus:ring-red-500/20 accent-red-500"
+                                            />
+                                            <label htmlFor="is_unpaid_edit" className="text-sm font-medium text-red-600 dark:text-red-500 cursor-pointer select-none">
+                                                El paciente no pagó esta sesión (Generar Deuda)
+                                            </label>
+                                        </div>
+                                    )}
                                 </div>
                             ) : (
                                 /* ── Create mode ── */
@@ -1131,8 +1159,24 @@ export function Appointments() {
                                             <option value="confirmado">Confirmado</option>
                                             <option value="cancelado">Cancelado</option>
                                             <option value="cancelado_tarde">Cancelado con penalidad</option>
+                                            <option value="completado">Completado</option>
                                         </select>
                                     </div>
+
+                                    {formData.status === 'completado' && !activeCuponera && (
+                                        <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-md">
+                                            <input
+                                                type="checkbox"
+                                                id="is_unpaid_new"
+                                                checked={formData.is_unpaid}
+                                                onChange={e => setFormData({ ...formData, is_unpaid: e.target.checked })}
+                                                className="w-4 h-4 rounded border-red-500/50 text-red-600 focus:ring-red-500/20 accent-red-500"
+                                            />
+                                            <label htmlFor="is_unpaid_new" className="text-sm font-medium text-red-600 dark:text-red-500 cursor-pointer select-none">
+                                                El paciente no pagó esta sesión (Generar Deuda)
+                                            </label>
+                                        </div>
+                                    )}
                                 </>
                             )}
 
