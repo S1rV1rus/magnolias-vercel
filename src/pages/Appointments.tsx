@@ -160,21 +160,51 @@ function AppointmentEvent({ event }: { event: any }) {
         
         // Inicia el temporizador para detectar el "long press"
         longPressTimerRef.current = setTimeout(() => {
+            longPressTimerRef.current = null // Limpiar ref
             // Si pasan 500ms sin soltar el dedo: es un "long press"
             if (navigator.vibrate) navigator.vibrate(50) // Vibración de feedback táctil
+            
+            // Ignorar el evento nativo de react-big-calendar que pueda dispararse
+            ;(window as any).__ignoreNextSelect = true;
+            setTimeout(() => { ;(window as any).__ignoreNextSelect = false; }, 500);
+
             // Se dispara el evento global para abrir el modal de edición
             window.dispatchEvent(new CustomEvent('editAppointment', { detail: event }))
             setTooltip(null) // Oculta el tooltip si estaba visible
         }, 500)
     }, [event])
 
-    const handleTouchEnd = useCallback(() => {
+    const handleTouchEnd = useCallback((e: React.TouchEvent) => {
         // Si el usuario suelta el dedo antes de los 500ms, se cancela la edición (fue solo un "tap")
         if (longPressTimerRef.current) {
             clearTimeout(longPressTimerRef.current)
             longPressTimerRef.current = null
+            
+            // Bloquear el onSelectEvent nativo de react-big-calendar
+            ;(window as any).__ignoreNextSelect = true;
+            setTimeout(() => { ;(window as any).__ignoreNextSelect = false; }, 500);
+
+            // Extraemos las coordenadas del toque para mostrar el tooltip
+            const touch = e.changedTouches[0]
+            if (touch) {
+                setTooltip({
+                    names,
+                    service: service?.name || '—',
+                    professional: professional
+                        ? `${professional.first_name} ${professional.last_name}`
+                        : '—',
+                    status: event.status,
+                    time: format(event.start, 'HH:mm') + ' – ' + format(event.end, 'HH:mm'),
+                    x: touch.clientX,
+                    y: touch.clientY,
+                })
+                
+                // Ocultamos el tooltip automáticamente después de 2.5 segundos
+                if (hideTimer.current) clearTimeout(hideTimer.current)
+                hideTimer.current = setTimeout(() => setTooltip(null), 2500)
+            }
         }
-    }, [])
+    }, [names, service, professional, event.status, event.start, event.end])
 
     const handleTouchMove = useCallback(() => {
         // Si el usuario mueve el dedo (está haciendo scroll), también se cancela la edición
@@ -183,32 +213,6 @@ function AppointmentEvent({ event }: { event: any }) {
             longPressTimerRef.current = null
         }
     }, [])
-
-    const handleClick = useCallback((e: React.MouseEvent) => {
-        if (isTouch) {
-            // Al hacer un toque corto en mobile, react-big-calendar igual dispara 'onClick'.
-            // Detenemos la propagación para que el calendario NO abra la edición por defecto.
-            e.stopPropagation()
-            e.preventDefault()
-            
-            // En vez de editar, mostramos el globo de previsualización (tooltip)
-            setTooltip({
-                names,
-                service: service?.name || '—',
-                professional: professional
-                    ? `${professional.first_name} ${professional.last_name}`
-                    : '—',
-                status: event.status,
-                time: format(event.start, 'HH:mm') + ' – ' + format(event.end, 'HH:mm'),
-                x: e.clientX,
-                y: e.clientY,
-            })
-            
-            // Ocultamos el tooltip automáticamente después de 2.5 segundos
-            if (hideTimer.current) clearTimeout(hideTimer.current)
-            hideTimer.current = setTimeout(() => setTooltip(null), 2500)
-        }
-    }, [isTouch, names, service, professional, event])
 
     useEffect(() => () => { 
         if (hideTimer.current) clearTimeout(hideTimer.current) 
@@ -223,7 +227,6 @@ function AppointmentEvent({ event }: { event: any }) {
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
             onTouchMove={handleTouchMove}
-            onClick={handleClick}
         >
             {tooltip && <AppointmentTooltip data={tooltip} />}
             <span className="font-semibold text-[11px] truncate">{names}</span>
@@ -511,6 +514,9 @@ export function Appointments() {
     }
 
     const handleSelectEvent = useCallback((event: any) => {
+        // Si estamos bloqueando la selección (por un "tap" en celular), no hacemos nada
+        if ((window as any).__ignoreNextSelect) return
+
         setSelectedEvent(event)
         const existingIds = event.raw.patientList?.map((p: any) => p.id) ?? ['']
         const profId = event.raw.professional?.id ?? event.raw.app?.professional_id ?? ''
@@ -527,7 +533,13 @@ export function Appointments() {
     }, [])
 
     useEffect(() => {
-        const handleCustomEdit = (e: any) => handleSelectEvent(e.detail)
+        const handleCustomEdit = (e: any) => {
+            // Permitir explícitamente este evento saltándose el bloqueo temporal
+            const prev = (window as any).__ignoreNextSelect
+            ;(window as any).__ignoreNextSelect = false
+            handleSelectEvent(e.detail)
+            ;(window as any).__ignoreNextSelect = prev
+        }
         window.addEventListener('editAppointment', handleCustomEdit)
         return () => window.removeEventListener('editAppointment', handleCustomEdit)
     }, [handleSelectEvent])
