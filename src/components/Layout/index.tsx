@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Calendar, Users, Ticket, Settings, Home, LogOut, Activity, Menu, X } from 'lucide-react'
+import { Calendar, Users, Ticket, Settings, Home, LogOut, Activity, Menu, X, DollarSign } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { ThemeToggle } from '../ThemeToggle'
 import { useAuth } from '../../contexts/AuthContext'
@@ -39,6 +39,7 @@ export function Layout() {
         { name: 'Pacientes', href: '/patients', icon: Users },
         { name: 'Cuponeras', href: '/coupons', icon: Ticket },
         { name: 'Actividad', href: '/logs', icon: Activity },
+        { name: 'Precios', href: '/prices', icon: DollarSign },
         ...(isAdmin ? [{ name: 'Configuración', href: '/settings', icon: Settings }] : []),
     ]
 
