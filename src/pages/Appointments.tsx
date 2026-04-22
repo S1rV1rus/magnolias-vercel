@@ -124,10 +124,13 @@ function AppointmentEvent({ event }: { event: any }) {
 
     const [tooltip, setTooltip] = useState<TooltipData | null>(null)
     const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const [isTouch, setIsTouch] = useState(false)
 
     const getStatusColor = (status: string) => STATUS_COLOR[status] ?? '#94a3b8'
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
+        if (isTouch) return
         if (hideTimer.current) clearTimeout(hideTimer.current)
         setTooltip({
             names,
@@ -140,19 +143,87 @@ function AppointmentEvent({ event }: { event: any }) {
             x: e.clientX,
             y: e.clientY,
         })
-    }, [names, service, professional, event.status, event.start, event.end])
+    }, [isTouch, names, service, professional, event.status, event.start, event.end])
 
     const handleMouseLeave = useCallback(() => {
+        if (isTouch) return
         hideTimer.current = setTimeout(() => setTooltip(null), 80)
+    }, [isTouch])
+
+    // --- Lógica Mobile (Touch) ---
+    // En celular, un toque corto ("tap") no abre la edición, sino que muestra la previsualización.
+    // Para editar, el usuario debe mantener apretado el turno (long press) por 500ms.
+
+    const handleTouchStart = useCallback(() => {
+        setIsTouch(true)
+        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
+        
+        // Inicia el temporizador para detectar el "long press"
+        longPressTimerRef.current = setTimeout(() => {
+            // Si pasan 500ms sin soltar el dedo: es un "long press"
+            if (navigator.vibrate) navigator.vibrate(50) // Vibración de feedback táctil
+            // Se dispara el evento global para abrir el modal de edición
+            window.dispatchEvent(new CustomEvent('editAppointment', { detail: event }))
+            setTooltip(null) // Oculta el tooltip si estaba visible
+        }, 500)
+    }, [event])
+
+    const handleTouchEnd = useCallback(() => {
+        // Si el usuario suelta el dedo antes de los 500ms, se cancela la edición (fue solo un "tap")
+        if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current)
+            longPressTimerRef.current = null
+        }
     }, [])
 
-    useEffect(() => () => { if (hideTimer.current) clearTimeout(hideTimer.current) }, [])
+    const handleTouchMove = useCallback(() => {
+        // Si el usuario mueve el dedo (está haciendo scroll), también se cancela la edición
+        if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current)
+            longPressTimerRef.current = null
+        }
+    }, [])
+
+    const handleClick = useCallback((e: React.MouseEvent) => {
+        if (isTouch) {
+            // Al hacer un toque corto en mobile, react-big-calendar igual dispara 'onClick'.
+            // Detenemos la propagación para que el calendario NO abra la edición por defecto.
+            e.stopPropagation()
+            e.preventDefault()
+            
+            // En vez de editar, mostramos el globo de previsualización (tooltip)
+            setTooltip({
+                names,
+                service: service?.name || '—',
+                professional: professional
+                    ? `${professional.first_name} ${professional.last_name}`
+                    : '—',
+                status: event.status,
+                time: format(event.start, 'HH:mm') + ' – ' + format(event.end, 'HH:mm'),
+                x: e.clientX,
+                y: e.clientY,
+            })
+            
+            // Ocultamos el tooltip automáticamente después de 2.5 segundos
+            if (hideTimer.current) clearTimeout(hideTimer.current)
+            hideTimer.current = setTimeout(() => setTooltip(null), 2500)
+        }
+    }, [isTouch, names, service, professional, event])
+
+    useEffect(() => () => { 
+        if (hideTimer.current) clearTimeout(hideTimer.current) 
+        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
+    }, [])
 
     return (
         <div
             className="flex flex-col h-full overflow-hidden leading-snug px-0.5 pt-0.5 gap-0.5 relative"
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            onTouchMove={handleTouchMove}
+            onClick={handleClick}
         >
             {tooltip && <AppointmentTooltip data={tooltip} />}
             <span className="font-semibold text-[11px] truncate">{names}</span>
@@ -439,7 +510,7 @@ export function Appointments() {
         openNewModal(slotInfo.start, slotInfo.resourceId as string | undefined)
     }
 
-    const handleSelectEvent = (event: any) => {
+    const handleSelectEvent = useCallback((event: any) => {
         setSelectedEvent(event)
         const existingIds = event.raw.patientList?.map((p: any) => p.id) ?? ['']
         const profId = event.raw.professional?.id ?? event.raw.app?.professional_id ?? ''
@@ -453,7 +524,13 @@ export function Appointments() {
             notes: event.raw.app?.notes || ''
         }))
         setIsModalOpen(true)
-    }
+    }, [])
+
+    useEffect(() => {
+        const handleCustomEdit = (e: any) => handleSelectEvent(e.detail)
+        window.addEventListener('editAppointment', handleCustomEdit)
+        return () => window.removeEventListener('editAppointment', handleCustomEdit)
+    }, [handleSelectEvent])
 
     // ── Helpers para el selector de pacientes ──
     const addPatientSlot = () => {
