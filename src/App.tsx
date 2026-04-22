@@ -12,6 +12,7 @@ import { Coupons } from './pages/Coupons'
 import { Settings } from './pages/Settings'
 import { Logs } from './pages/Logs'
 import { PriceList } from './pages/PriceList'
+import { Blog } from './pages/Blog'
 
 function App() {
     return (
@@ -34,6 +35,7 @@ function App() {
                                 <Route path="coupons" element={<Coupons />} />
                                 <Route path="logs" element={<Logs />} />
                                 <Route path="prices" element={<PriceList />} />
+                                <Route path="blog" element={<Blog />} />
 
                                 {/* Admin-only route */}
                                 <Route element={<ProtectedRoute adminOnly />}>
