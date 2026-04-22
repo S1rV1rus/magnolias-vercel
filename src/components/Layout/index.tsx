@@ -39,7 +39,7 @@ export function Layout() {
         { name: 'Pacientes', href: '/patients', icon: Users },
         { name: 'Cuponeras', href: '/coupons', icon: Ticket },
         { name: 'Actividad', href: '/logs', icon: Activity },
-        { name: 'Precios', href: '/prices', icon: DollarSign },
+        { name: 'Precios', href: '/prices', icon: DollarSign, beta: true },
         ...(isAdmin ? [{ name: 'Configuración', href: '/settings', icon: Settings }] : []),
     ]
 
@@ -71,6 +71,7 @@ export function Layout() {
                                 aria-hidden="true"
                             />
                             {item.name}
+                            {item.beta && <span className="ml-auto text-[9px] font-bold uppercase tracking-wider bg-violet-500/15 text-violet-400 border border-violet-500/30 px-1.5 py-0.5 rounded-full leading-none">Beta</span>}
                         </Link>
                     )
                 })}
@@ -153,6 +154,7 @@ export function Layout() {
                                     aria-hidden="true"
                                 />
                                 {item.name}
+                                {item.beta && <span className="ml-auto text-[9px] font-bold uppercase tracking-wider bg-violet-500/15 text-violet-400 border border-violet-500/30 px-1.5 py-0.5 rounded-full leading-none">Beta</span>}
                             </Link>
                         )
                     })}
