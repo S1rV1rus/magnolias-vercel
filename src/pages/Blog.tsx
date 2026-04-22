@@ -317,7 +317,7 @@ export function Blog() {
                                     type="text"
                                     required
                                     maxLength={100}
-                                    placeholder="Ej: Ojo con Pili"
+                                    placeholder="Ej: Aviso importante"
                                     className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
                                     value={form.title}
                                     onChange={e => setForm({ ...form, title: e.target.value })}
