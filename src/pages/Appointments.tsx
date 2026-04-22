@@ -165,8 +165,7 @@ function AppointmentEvent({ event }: { event: any }) {
             if (navigator.vibrate) navigator.vibrate(50) // Vibración de feedback táctil
             
             // Ignorar el evento nativo de react-big-calendar que pueda dispararse
-            ;(window as any).__ignoreNextSelect = true;
-            setTimeout(() => { ;(window as any).__ignoreNextSelect = false; }, 500);
+            ;(window as any).__ignoreNextSelectUntil = Date.now() + 1000;
 
             // Se dispara el evento global para abrir el modal de edición
             window.dispatchEvent(new CustomEvent('editAppointment', { detail: event }))
@@ -180,9 +179,8 @@ function AppointmentEvent({ event }: { event: any }) {
             clearTimeout(longPressTimerRef.current)
             longPressTimerRef.current = null
             
-            // Bloquear el onSelectEvent nativo de react-big-calendar
-            ;(window as any).__ignoreNextSelect = true;
-            setTimeout(() => { ;(window as any).__ignoreNextSelect = false; }, 500);
+            // Bloquear el onSelectEvent nativo de react-big-calendar (click sintético)
+            ;(window as any).__ignoreNextSelectUntil = Date.now() + 1000;
 
             // Extraemos las coordenadas del toque para mostrar el tooltip
             const touch = e.changedTouches[0]
@@ -523,8 +521,8 @@ export function Appointments() {
     }
 
     const handleSelectEvent = useCallback((event: any) => {
-        // Si estamos bloqueando la selección (por un "tap" en celular), no hacemos nada
-        if ((window as any).__ignoreNextSelect) return
+        // Si estamos bloqueando la selección (por un "tap" o "long-press" en celular), no hacemos nada
+        if ((window as any).__ignoreNextSelectUntil && (window as any).__ignoreNextSelectUntil > Date.now()) return
 
         setSelectedEvent(event)
         const existingIds = event.raw.patientList?.map((p: any) => p.id) ?? ['']
@@ -545,10 +543,10 @@ export function Appointments() {
     useEffect(() => {
         const handleCustomEdit = (e: any) => {
             // Permitir explícitamente este evento saltándose el bloqueo temporal
-            const prev = (window as any).__ignoreNextSelect
-            ;(window as any).__ignoreNextSelect = false
+            const prev = (window as any).__ignoreNextSelectUntil
+            ;(window as any).__ignoreNextSelectUntil = 0
             handleSelectEvent(e.detail)
-            ;(window as any).__ignoreNextSelect = prev
+            ;(window as any).__ignoreNextSelectUntil = prev
         }
         window.addEventListener('editAppointment', handleCustomEdit)
         return () => window.removeEventListener('editAppointment', handleCustomEdit)
