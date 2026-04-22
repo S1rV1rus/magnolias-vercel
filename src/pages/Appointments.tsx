@@ -156,6 +156,9 @@ function AppointmentEvent({ event }: { event: any }) {
 
     const handleTouchStart = useCallback(() => {
         setIsTouch(true)
+        // Cierra todos los otros tooltips que puedan estar abiertos
+        window.dispatchEvent(new CustomEvent('closeAllTooltips'))
+        
         if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
         
         // Inicia el temporizador para detectar el "long press"
@@ -212,9 +215,18 @@ function AppointmentEvent({ event }: { event: any }) {
         }
     }, [])
 
-    useEffect(() => () => { 
-        if (hideTimer.current) clearTimeout(hideTimer.current) 
-        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
+    useEffect(() => { 
+        const handleCloseAll = () => {
+            setTooltip(null)
+            if (hideTimer.current) clearTimeout(hideTimer.current)
+        }
+        window.addEventListener('closeAllTooltips', handleCloseAll)
+        
+        return () => {
+            window.removeEventListener('closeAllTooltips', handleCloseAll)
+            if (hideTimer.current) clearTimeout(hideTimer.current) 
+            if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
+        }
     }, [])
 
     return (
