@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { Plus, Pin, PinOff, Pencil, Trash2, X, AlertTriangle, StickyNote } from 'lucide-react'
+import { Plus, Pin, PinOff, Pencil, Trash2, X, AlertTriangle, StickyNote, BookOpen } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 interface BlogNote {
@@ -16,12 +16,12 @@ interface BlogNote {
 }
 
 const COLOR_OPTIONS = [
-    { value: 'yellow',  label: 'Amarillo', bg: 'bg-yellow-100 dark:bg-yellow-900/40', border: 'border-t-yellow-400',   dot: 'bg-yellow-400',  text: 'text-yellow-900 dark:text-yellow-100' },
-    { value: 'red',     label: 'Rojo',     bg: 'bg-red-100 dark:bg-red-900/40',       border: 'border-t-red-500',      dot: 'bg-red-500',     text: 'text-red-900 dark:text-red-100' },
-    { value: 'green',   label: 'Verde',    bg: 'bg-green-100 dark:bg-green-900/40',   border: 'border-t-green-500',    dot: 'bg-green-500',   text: 'text-green-900 dark:text-green-100' },
-    { value: 'blue',    label: 'Azul',     bg: 'bg-blue-100 dark:bg-blue-900/40',     border: 'border-t-blue-500',     dot: 'bg-blue-500',    text: 'text-blue-900 dark:text-blue-100' },
-    { value: 'purple',  label: 'Violeta',  bg: 'bg-violet-100 dark:bg-violet-900/40', border: 'border-t-violet-500',   dot: 'bg-violet-500',  text: 'text-violet-900 dark:text-violet-100' },
-    { value: 'orange',  label: 'Naranja',  bg: 'bg-orange-100 dark:bg-orange-900/40', border: 'border-t-orange-500',   dot: 'bg-orange-500',  text: 'text-orange-900 dark:text-orange-100' },
+    { value: 'yellow', label: 'Protocolos',   category: 'Protocolos',                           bg: 'bg-yellow-100 dark:bg-yellow-900/40', border: 'border-t-yellow-400', dot: 'bg-yellow-400', text: 'text-yellow-900 dark:text-yellow-100' },
+    { value: 'red',    label: 'Alerta',        category: 'Alerta en rojo',                        bg: 'bg-red-100 dark:bg-red-900/40',       border: 'border-t-red-500',    dot: 'bg-red-500',    text: 'text-red-900 dark:text-red-100' },
+    { value: 'green',  label: 'Descuentos',    category: 'Información sobre descuentos',          bg: 'bg-green-100 dark:bg-green-900/40',   border: 'border-t-green-500',  dot: 'bg-green-500',  text: 'text-green-900 dark:text-green-100' },
+    { value: 'blue',   label: 'Tratamientos',  category: 'Información sobre tratamientos',        bg: 'bg-blue-100 dark:bg-blue-900/40',     border: 'border-t-blue-500',   dot: 'bg-blue-500',   text: 'text-blue-900 dark:text-blue-100' },
+    { value: 'purple', label: 'Para leer',     category: 'Información relevante para ir leyendo', bg: 'bg-violet-100 dark:bg-violet-900/40', border: 'border-t-violet-500', dot: 'bg-violet-500', text: 'text-violet-900 dark:text-violet-100' },
+    { value: 'orange', label: 'General',       category: 'General',                               bg: 'bg-orange-100 dark:bg-orange-900/40', border: 'border-t-orange-500', dot: 'bg-orange-500', text: 'text-orange-900 dark:text-orange-100' },
 ]
 
 function getColorClasses(color: string) {
@@ -30,11 +30,14 @@ function getColorClasses(color: string) {
 
 const emptyForm = { title: '', content: '', color: 'yellow' }
 
+const CONTENT_PREVIEW_LENGTH = 220
+
 export function Blog() {
     const { user } = useAuth()
     const [notes, setNotes] = useState<BlogNote[]>([])
     const [loading, setLoading] = useState(true)
     const [modalOpen, setModalOpen] = useState(false)
+    const [readingNote, setReadingNote] = useState<BlogNote | null>(null)
     const [editingNote, setEditingNote] = useState<BlogNote | null>(null)
     const [form, setForm] = useState(emptyForm)
     const [saving, setSaving] = useState(false)
@@ -111,6 +114,7 @@ export function Blog() {
     async function handleDelete(id: string) {
         await supabase.from('blog_notes').delete().eq('id', id)
         setConfirmDelete(null)
+        setReadingNote(null)
         void fetchNotes()
     }
 
@@ -128,13 +132,17 @@ export function Blog() {
         return d.toLocaleDateString('es-AR')
     }
 
+    const readingColors = readingNote ? getColorClasses(readingNote.color) : null
+    const readingIsAlert = readingNote?.color === 'red'
+    const readingIsAuthor = readingNote?.auth_user_id === currentUserId
+
     return (
         <div className="flex flex-col gap-6 w-full animate-in fade-in duration-500 pb-10">
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight text-foreground">Blog Interno</h1>
-                    <p className="text-muted-foreground mt-1">Notas y alertas para todo el equipo.</p>
+                    <p className="text-muted-foreground mt-1">Notas y artículos para todo el equipo.</p>
                 </div>
                 <button
                     onClick={openCreate}
@@ -142,6 +150,16 @@ export function Blog() {
                 >
                     <Plus className="w-4 h-4" /> Nueva Nota
                 </button>
+            </div>
+
+            {/* Color legend */}
+            <div className="flex flex-wrap gap-x-4 gap-y-2">
+                {COLOR_OPTIONS.map(c => (
+                    <div key={c.value} className="flex items-center gap-1.5">
+                        <div className={cn("w-2.5 h-2.5 rounded-full shrink-0", c.dot)} />
+                        <span className="text-xs text-muted-foreground">{c.category}</span>
+                    </div>
+                ))}
             </div>
 
             {/* Content */}
@@ -159,12 +177,14 @@ export function Blog() {
                         const colors = getColorClasses(note.color)
                         const isAuthor = note.auth_user_id === currentUserId
                         const isAlert = note.color === 'red'
+                        const isLong = note.content.length > CONTENT_PREVIEW_LENGTH
 
                         return (
                             <div
                                 key={note.id}
+                                onClick={() => setReadingNote(note)}
                                 className={cn(
-                                    "break-inside-avoid group relative rounded-lg border-t-4 shadow-md hover:shadow-lg transition-all duration-200",
+                                    "break-inside-avoid group relative rounded-lg border-t-4 shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer",
                                     colors.bg,
                                     colors.border,
                                     isAlert && "ring-1 ring-red-400/30",
@@ -172,7 +192,6 @@ export function Blog() {
                                 )}
                                 style={{ transform: `rotate(${(note.id.charCodeAt(0) % 3 - 1) * 0.5}deg)` }}
                             >
-                                {/* Pin indicator */}
                                 {note.is_pinned && (
                                     <div className="absolute -top-2 -right-1 z-10">
                                         <Pin className="w-4 h-4 text-primary fill-primary rotate-45" />
@@ -180,24 +199,33 @@ export function Blog() {
                                 )}
 
                                 <div className="p-4">
-                                    {/* Alert icon for red notes */}
-                                    {isAlert && (
-                                        <div className="flex items-center gap-1.5 mb-2">
-                                            <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
-                                            <span className="text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">Alerta</span>
-                                        </div>
-                                    )}
+                                    {/* Category badge */}
+                                    <div className="flex items-center gap-1.5 mb-2">
+                                        {isAlert && (
+                                            <AlertTriangle className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />
+                                        )}
+                                        <span className={cn("text-[10px] font-bold uppercase tracking-wider opacity-60", colors.text)}>
+                                            {colors.category}
+                                        </span>
+                                    </div>
 
                                     {/* Title */}
                                     <h3 className={cn("font-bold text-sm leading-snug", colors.text)}>
                                         {note.title}
                                     </h3>
 
-                                    {/* Content */}
+                                    {/* Content preview */}
                                     {note.content && (
-                                        <p className={cn("text-xs mt-2 whitespace-pre-wrap leading-relaxed opacity-80", colors.text)}>
-                                            {note.content}
+                                        <p className={cn("text-xs mt-2 leading-relaxed opacity-80", colors.text)}>
+                                            {isLong ? note.content.slice(0, CONTENT_PREVIEW_LENGTH) + '…' : note.content}
                                         </p>
+                                    )}
+
+                                    {isLong && (
+                                        <div className={cn("flex items-center gap-1 mt-2 text-[10px] font-medium opacity-55", colors.text)}>
+                                            <BookOpen className="w-3 h-3" />
+                                            <span>Leer artículo completo</span>
+                                        </div>
                                     )}
 
                                     {/* Footer */}
@@ -212,8 +240,11 @@ export function Blog() {
                                         </div>
                                     </div>
 
-                                    {/* Action buttons (on hover) */}
-                                    <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    {/* Action buttons (on hover) — stop propagation so they don't open the reader */}
+                                    <div
+                                        className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                        onClick={e => e.stopPropagation()}
+                                    >
                                         <button
                                             onClick={() => handleTogglePin(note)}
                                             className="p-1.5 rounded-md bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 transition-colors cursor-pointer"
@@ -263,11 +294,106 @@ export function Blog() {
                 </div>
             )}
 
-            {/* Modal */}
+            {/* Article Reading Modal */}
+            {readingNote && readingColors && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4"
+                    onClick={() => { setReadingNote(null); setConfirmDelete(null) }}
+                >
+                    <div
+                        className={cn(
+                            "w-full max-w-2xl max-h-[85vh] flex flex-col rounded-xl shadow-2xl border-t-4 overflow-hidden animate-in zoom-in-95 duration-200",
+                            readingColors.bg,
+                            readingColors.border
+                        )}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        {/* Reading header */}
+                        <div className="flex items-start justify-between p-6 pb-4 shrink-0">
+                            <div className="flex-1 pr-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                    {readingIsAlert && (
+                                        <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
+                                    )}
+                                    <span className={cn("text-xs font-bold uppercase tracking-wider opacity-60", readingColors.text)}>
+                                        {readingColors.category}
+                                    </span>
+                                </div>
+                                <h2 className={cn("text-xl font-bold leading-snug", readingColors.text)}>
+                                    {readingNote.title}
+                                </h2>
+                                <div className="flex items-center gap-2 mt-3">
+                                    <div className="w-5 h-5 rounded-full bg-black/10 dark:bg-white/20 flex items-center justify-center">
+                                        <span className="text-[9px] font-bold opacity-70">{readingNote.author_name.charAt(0).toUpperCase()}</span>
+                                    </div>
+                                    <span className={cn("text-xs opacity-50 font-medium", readingColors.text)}>{readingNote.author_name}</span>
+                                    <span className={cn("text-xs opacity-30", readingColors.text)}>·</span>
+                                    <span className={cn("text-xs opacity-40", readingColors.text)}>{timeAgo(readingNote.created_at)}</span>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                                {readingIsAuthor && (
+                                    <>
+                                        <button
+                                            onClick={() => { setReadingNote(null); openEdit(readingNote) }}
+                                            className="p-2 rounded-md bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 transition-colors cursor-pointer"
+                                            title="Editar"
+                                        >
+                                            <Pencil className="w-4 h-4 opacity-70" />
+                                        </button>
+                                        {confirmDelete === readingNote.id ? (
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    onClick={() => handleDelete(readingNote.id)}
+                                                    className="text-[10px] px-2 py-1.5 rounded bg-red-600 text-white font-bold cursor-pointer"
+                                                >Sí</button>
+                                                <button
+                                                    onClick={() => setConfirmDelete(null)}
+                                                    className="text-[10px] px-2 py-1.5 opacity-60 cursor-pointer"
+                                                >No</button>
+                                            </div>
+                                        ) : (
+                                            <button
+                                                onClick={() => setConfirmDelete(readingNote.id)}
+                                                className="p-2 rounded-md bg-black/5 dark:bg-white/10 hover:bg-red-500/20 transition-colors cursor-pointer"
+                                                title="Eliminar"
+                                            >
+                                                <Trash2 className="w-4 h-4 opacity-70" />
+                                            </button>
+                                        )}
+                                    </>
+                                )}
+                                <button
+                                    onClick={() => { setReadingNote(null); setConfirmDelete(null) }}
+                                    className="p-2 rounded-md bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 transition-colors cursor-pointer ml-1"
+                                >
+                                    <X className="w-4 h-4 opacity-70" />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Article content */}
+                        <div className="flex-1 overflow-y-auto px-6 pb-6">
+                            <div className={cn("border-t border-black/10 dark:border-white/10 pt-5", readingColors.text)}>
+                                {readingNote.content ? (
+                                    <p className="text-sm leading-relaxed whitespace-pre-wrap opacity-90">
+                                        {readingNote.content}
+                                    </p>
+                                ) : (
+                                    <p className="text-sm opacity-40 italic">Sin contenido adicional.</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Create / Edit Modal */}
             {modalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
-                    <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200">
-                        <div className="flex items-center justify-between p-5 pb-4 border-b border-border/50">
+                    <div className="w-full max-w-lg bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+                        <div className="flex items-center justify-between p-5 pb-4 border-b border-border/50 shrink-0">
                             <h3 className="text-lg font-bold text-foreground">
                                 {editingNote ? 'Editar Nota' : 'Nueva Nota'}
                             </h3>
@@ -279,11 +405,11 @@ export function Blog() {
                             </button>
                         </div>
 
-                        <form onSubmit={handleSave} className="p-5 space-y-4">
-                            {/* Color selector */}
+                        <form onSubmit={handleSave} className="p-5 space-y-4 overflow-y-auto">
+                            {/* Category / Color selector */}
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-foreground">Color</label>
-                                <div className="flex gap-2">
+                                <label className="text-sm font-medium text-foreground">Categoría</label>
+                                <div className="flex gap-2 flex-wrap">
                                     {COLOR_OPTIONS.map(c => (
                                         <button
                                             key={c.value}
@@ -296,7 +422,7 @@ export function Blog() {
                                                     ? "ring-2 ring-offset-2 ring-offset-card ring-foreground scale-110"
                                                     : "opacity-60 hover:opacity-100"
                                             )}
-                                            title={c.label}
+                                            title={c.category}
                                         >
                                             {c.value === 'red' && form.color === 'red' && (
                                                 <AlertTriangle className="w-3.5 h-3.5 text-white" />
@@ -304,11 +430,15 @@ export function Blog() {
                                         </button>
                                     ))}
                                 </div>
-                                {form.color === 'red' && (
-                                    <p className="text-[11px] text-red-500 font-medium flex items-center gap-1 mt-1">
-                                        <AlertTriangle className="w-3 h-3" /> Esta nota se verá como alerta para todos.
-                                    </p>
-                                )}
+                                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                                    <span className={cn("w-2 h-2 rounded-full inline-block shrink-0", getColorClasses(form.color).dot)} />
+                                    {getColorClasses(form.color).category}
+                                    {form.color === 'red' && (
+                                        <span className="text-red-500 font-medium flex items-center gap-0.5 ml-1">
+                                            — <AlertTriangle className="w-3 h-3 mx-0.5" /> Se verá como alerta para todas.
+                                        </span>
+                                    )}
+                                </p>
                             </div>
 
                             <div className="space-y-2">
@@ -316,8 +446,8 @@ export function Blog() {
                                 <input
                                     type="text"
                                     required
-                                    maxLength={100}
-                                    placeholder="Ej: Aviso importante"
+                                    maxLength={200}
+                                    placeholder="Ej: Nuevo protocolo de atención"
                                     className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
                                     value={form.title}
                                     onChange={e => setForm({ ...form, title: e.target.value })}
@@ -325,15 +455,17 @@ export function Blog() {
                             </div>
 
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-foreground flex justify-between">
-                                    Contenido
-                                    <span className="text-xs text-muted-foreground font-normal">(Opcional)</span>
+                                <label className="text-sm font-medium text-foreground flex justify-between items-baseline">
+                                    <span>Contenido</span>
+                                    <span className="text-xs text-muted-foreground font-normal tabular-nums">
+                                        {form.content.length.toLocaleString('es-AR')} / 5.000
+                                    </span>
                                 </label>
                                 <textarea
-                                    rows={4}
-                                    maxLength={500}
-                                    placeholder="Detalles de la nota..."
-                                    className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none resize-none"
+                                    rows={8}
+                                    maxLength={5000}
+                                    placeholder="Escribí el contenido del artículo. Podés desarrollar con todo el detalle que necesitás..."
+                                    className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none resize-y min-h-[120px]"
                                     value={form.content}
                                     onChange={e => setForm({ ...form, content: e.target.value })}
                                 />
@@ -346,15 +478,19 @@ export function Blog() {
                                     getColorClasses(form.color).bg,
                                     getColorClasses(form.color).border,
                                 )}>
-                                    {form.color === 'red' && (
-                                        <div className="flex items-center gap-1 mb-1">
+                                    <div className="flex items-center gap-1.5 mb-1">
+                                        {form.color === 'red' && (
                                             <AlertTriangle className="w-3 h-3 text-red-600 dark:text-red-400" />
-                                            <span className="text-[9px] font-bold uppercase text-red-600 dark:text-red-400">Alerta</span>
-                                        </div>
-                                    )}
+                                        )}
+                                        <span className={cn("text-[9px] font-bold uppercase tracking-wider opacity-60", getColorClasses(form.color).text)}>
+                                            {getColorClasses(form.color).category}
+                                        </span>
+                                    </div>
                                     <p className={cn("text-xs font-bold", getColorClasses(form.color).text)}>{form.title}</p>
                                     {form.content.trim() && (
-                                        <p className={cn("text-[10px] mt-1 opacity-70", getColorClasses(form.color).text)}>{form.content}</p>
+                                        <p className={cn("text-[10px] mt-1 opacity-70 line-clamp-3", getColorClasses(form.color).text)}>
+                                            {form.content}
+                                        </p>
                                     )}
                                 </div>
                             )}

@@ -163,7 +163,7 @@ export function PatientDetails() {
         if (sData) setServices(sData)
 
         // Fetch professionals for dropdown
-        const { data: profData } = await supabase.from('professionals').select('id, first_name, last_name')
+        const { data: profData } = await supabase.from('professionals').select('id, first_name, last_name').eq('is_deleted', false)
         if (profData) setProfessionals(profData)
 
         // Fetch Appointments

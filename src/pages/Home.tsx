@@ -74,6 +74,7 @@ export function Home() {
         const { data, error } = await supabase
             .from('professionals')
             .select('id, first_name, last_name')
+            .eq('is_deleted', false)
         if (data && !error) {
             setProfessionals(data)
             setSelectedProfId(prev => prev || (data.length > 0 ? data[0].id : prev))

@@ -13,6 +13,7 @@ export interface Professional {
     phone: string | null;
     color: string | null;
     is_active: boolean;
+    is_deleted?: boolean;
     auth_user_id?: string | null;
 }
 
@@ -64,7 +65,7 @@ export function Settings() {
     // --- Professionals Logic ---
     async function fetchProfessionals() {
         setLoadingProf(true)
-        const { data } = await supabase.from('professionals').select('*').order('first_name')
+        const { data } = await supabase.from('professionals').select('*').eq('is_deleted', false).order('first_name')
         if (data) setProfessionals(data)
         setLoadingProf(false)
     }
@@ -186,12 +187,14 @@ export function Settings() {
     }
 
     const handleDeleteProf = async (id: string) => {
-        if (window.confirm('¿Eliminar este profesional? No podrá acceder al sistema y sus datos quedarán registrados.')) {
-            // Find auth_user_id before deleting
+        if (window.confirm('¿Eliminar este profesional? Sus turnos quedarán guardados con su nombre, pero ya no podrá acceder al sistema.')) {
             const prof = professionals.find(p => p.id === id)
-            const { error } = await supabase.from('professionals').delete().eq('id', id)
-            if (error) { console.error('Error deleting:', error); return }
-            // Delete the Supabase Auth user too (if linked)
+            // Remove schedules (safe to delete, no FK dependencies)
+            await supabase.from('professional_schedules').delete().eq('professional_id', id)
+            // Soft delete: mark as deleted + deactivate so no longer aparece en el sistema
+            const { error } = await supabase.from('professionals').update({ is_deleted: true, is_active: false }).eq('id', id)
+            if (error) { alert('No se pudo eliminar el profesional: ' + error.message); return }
+            // Remove auth access so they can't log in
             if (prof?.auth_user_id) {
                 await callManageStaff('delete', prof.auth_user_id)
             }
