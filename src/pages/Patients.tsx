@@ -1,11 +1,13 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { Plus, Search, FileText, Pencil, Trash2, AlertTriangle } from 'lucide-react'
+import { Plus, Search, FileText, Pencil, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
 
 export function Patients() {
     const [patients, setPatients] = useState<any[]>([])
     const [searchTerm, setSearchTerm] = useState('')
+    const [currentPage, setCurrentPage] = useState(1)
+    const ITEMS_PER_PAGE = 15
 
     // Modal ABM
     const [isModalOpen, setIsModalOpen] = useState(false)
@@ -115,6 +117,39 @@ export function Patients() {
         return searchTerms.every(term => full.includes(term))
     })
 
+    // Pagination
+    const totalPages = Math.max(1, Math.ceil(filteredPatients.length / ITEMS_PER_PAGE))
+    const safeCurrentPage = Math.min(currentPage, totalPages)
+    const paginatedPatients = filteredPatients.slice(
+        (safeCurrentPage - 1) * ITEMS_PER_PAGE,
+        safeCurrentPage * ITEMS_PER_PAGE
+    )
+    const startIndex = (safeCurrentPage - 1) * ITEMS_PER_PAGE + 1
+    const endIndex = Math.min(safeCurrentPage * ITEMS_PER_PAGE, filteredPatients.length)
+
+    // Reset to page 1 when search changes
+    const handleSearch = useCallback((value: string) => {
+        setSearchTerm(value)
+        setCurrentPage(1)
+    }, [])
+
+    // Generate page numbers with ellipsis
+    const getPageNumbers = () => {
+        const pages: (number | string)[] = []
+        if (totalPages <= 7) {
+            for (let i = 1; i <= totalPages; i++) pages.push(i)
+        } else {
+            pages.push(1)
+            if (safeCurrentPage > 3) pages.push('...')
+            const start = Math.max(2, safeCurrentPage - 1)
+            const end = Math.min(totalPages - 1, safeCurrentPage + 1)
+            for (let i = start; i <= end; i++) pages.push(i)
+            if (safeCurrentPage < totalPages - 2) pages.push('...')
+            pages.push(totalPages)
+        }
+        return pages
+    }
+
     return (
         <div className="flex flex-col gap-6 w-full animate-in fade-in duration-500 relative">
             <div className="flex justify-between items-center">
@@ -136,7 +171,7 @@ export function Patients() {
                     type="text"
                     placeholder="Buscar por nombre o cédula..."
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => handleSearch(e.target.value)}
                     className="bg-transparent border-0 outline-none w-full text-sm text-foreground placeholder:text-muted-foreground focus:ring-0"
                 />
             </div>
@@ -148,7 +183,7 @@ export function Patients() {
                         {searchTerm ? 'No se encontraron pacientes.' : 'No hay pacientes registrados aún.'}
                     </div>
                 ) : (
-                    filteredPatients.map(patient => (
+                    paginatedPatients.map(patient => (
                         <div key={patient.id} className="bg-card border border-border/50 rounded-lg p-4 shadow-sm">
                             <div className="flex items-start justify-between gap-2">
                                 <div>
@@ -203,7 +238,7 @@ export function Patients() {
                                 </td>
                             </tr>
                         ) : (
-                            filteredPatients.map(patient => (
+                            paginatedPatients.map(patient => (
                                 <tr key={patient.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors bg-card">
                                     <td className="px-5 py-4 font-medium text-card-foreground">
                                         <div className="flex items-center gap-2">
@@ -237,6 +272,50 @@ export function Patients() {
                     </tbody>
                 </table>
             </div>
+
+            {/* Pagination Controls */}
+            {filteredPatients.length > ITEMS_PER_PAGE && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+                    <p className="text-sm text-muted-foreground">
+                        Mostrando <span className="font-medium text-foreground">{startIndex}</span> – <span className="font-medium text-foreground">{endIndex}</span> de <span className="font-medium text-foreground">{filteredPatients.length}</span> pacientes
+                    </p>
+                    <div className="flex items-center gap-1">
+                        <button
+                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                            disabled={safeCurrentPage === 1}
+                            className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                            aria-label="Página anterior"
+                        >
+                            <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        {getPageNumbers().map((page, idx) =>
+                            typeof page === 'string' ? (
+                                <span key={`ellipsis-${idx}`} className="px-2 text-muted-foreground text-sm">…</span>
+                            ) : (
+                                <button
+                                    key={page}
+                                    onClick={() => setCurrentPage(page)}
+                                    className={`min-w-[36px] h-9 rounded-md text-sm font-medium transition-colors cursor-pointer ${
+                                        page === safeCurrentPage
+                                            ? 'bg-primary text-primary-foreground shadow-sm'
+                                            : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                                    }`}
+                                >
+                                    {page}
+                                </button>
+                            )
+                        )}
+                        <button
+                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                            disabled={safeCurrentPage === totalPages}
+                            className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                            aria-label="Página siguiente"
+                        >
+                            <ChevronRight className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
+            )}
 
 
             {/* Modal de Nuevo / Editar Paciente */}
