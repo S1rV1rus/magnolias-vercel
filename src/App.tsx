@@ -13,6 +13,7 @@ import { Settings } from './pages/Settings'
 import { Logs } from './pages/Logs'
 import { PriceList } from './pages/PriceList'
 import { Blog } from './pages/Blog'
+import { Stock } from './pages/Stock'
 
 function App() {
     return (
@@ -36,6 +37,7 @@ function App() {
                                 <Route path="logs" element={<Logs />} />
                                 <Route path="prices" element={<PriceList />} />
                                 <Route path="blog" element={<Blog />} />
+                                <Route path="stock" element={<Stock />} />
 
                                 {/* Admin-only route */}
                                 <Route element={<ProtectedRoute adminOnly />}>
