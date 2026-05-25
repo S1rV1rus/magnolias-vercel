@@ -274,27 +274,6 @@ export function PatientDetails() {
         }
     }
 
-    const handleUseSession = async (cuponera: any) => {
-        if (cuponera.used_sessions >= cuponera.total_sessions) return
-
-        const { error } = await supabase
-            .from('cuponeras')
-            .update({ used_sessions: cuponera.used_sessions + 1 })
-            .eq('id', cuponera.id)
-
-        if (!error) {
-            const serviceName = Array.isArray(cuponera.services) ? cuponera.services[0]?.name : cuponera.services?.name;
-            await supabase.from('clinical_history').insert({
-                patient_id: id,
-                service_type: 'Canje de Sesión',
-                notes: `[CUPONERA:${cuponera.id}] Se consumió manualmente la sesión ${cuponera.used_sessions + 1} de la cuponera asignada de ${serviceName || 'Tratamiento'}.`,
-                created_at: new Date().toISOString()
-            });
-            loadData() // refresh list to show updated count
-        } else {
-            console.error('Error updating session use:', error)
-        }
-    }
 
     const startConsumeSessionFlow = (cuponera: any) => {
         setSelectedCuponeraForConsuming(cuponera);
