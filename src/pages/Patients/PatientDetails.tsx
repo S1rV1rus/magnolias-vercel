@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { ArrowLeft, Calendar, CalendarDays, FileText, CreditCard, Plus, Ticket, CheckCircle2, X, User, Pencil, Trash2, ImageIcon, ChevronLeft, ChevronRight, Play, Pause, Images, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Calendar, CalendarDays, FileText, CreditCard, Plus, Ticket, CheckCircle2, X, User, Pencil, Trash2, ImageIcon, ChevronLeft, ChevronRight, Play, Pause, Images, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
 export function PatientDetails() {
@@ -40,6 +40,7 @@ export function PatientDetails() {
 
     // Modal Nueva Historia Clínica
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false)
+    const [isVisualProgressCollapsed, setIsVisualProgressCollapsed] = useState(true)
     const [selectedHistoryEntry, setSelectedHistoryEntry] = useState<any | null>(null)
     const [isEditingHistory, setIsEditingHistory] = useState(false)
     const [confirmDeleteHistory, setConfirmDeleteHistory] = useState(false)
@@ -761,105 +762,120 @@ export function PatientDetails() {
 
                             return (
                                 <div className="border border-border/60 rounded-xl overflow-hidden bg-card shadow-sm">
-                                    {/* Treatment selector tabs */}
-                                    {cuponerasWithPhotos.length > 1 && (
-                                        <div className="flex gap-1 px-4 pt-4 pb-0 border-b border-border/40">
-                                            {cuponerasWithPhotos.map(c => {
-                                                const label = (Array.isArray(c.services) ? c.services[0] : c.services)?.name || 'Tratamiento'
-                                                const isActive = c.id === (slideshowCuponeraId || cuponerasWithPhotos[0].id)
-                                                return (
-                                                    <button
-                                                        key={c.id}
-                                                        onClick={() => { setSlideshowCuponeraId(c.id); setSlideshowIndex(0) }}
-                                                        className={cn(
-                                                            'px-3 py-2 text-xs font-medium border-b-2 transition-colors cursor-pointer -mb-px',
-                                                            isActive ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
-                                                        )}
-                                                    >{label}</button>
-                                                )
-                                            })}
-                                        </div>
-                                    )}
-
-                                    <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40">
+                                    {/* Clickable Header bar */}
+                                    <div 
+                                        onClick={() => setIsVisualProgressCollapsed(prev => !prev)}
+                                        className={cn(
+                                            "flex items-center gap-2 px-4 py-3 cursor-pointer hover:bg-muted/30 select-none transition-colors",
+                                            !isVisualProgressCollapsed && "border-b border-border/40"
+                                        )}
+                                    >
                                         <Images className="w-4 h-4 text-primary" />
                                         <span className="text-sm font-semibold text-foreground">Progreso Visual — {serviceLabel}</span>
-                                        <span className="ml-auto text-xs text-muted-foreground">{frames.length} foto{frames.length !== 1 ? 's' : ''}</span>
+                                        <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground font-medium">
+                                            {frames.length} foto{frames.length !== 1 ? 's' : ''}
+                                            {isVisualProgressCollapsed ? <ChevronDown className="w-4 h-4 text-primary" /> : <ChevronUp className="w-4 h-4 text-primary" />}
+                                        </span>
                                     </div>
 
-                                    {frames.length === 0 ? (
-                                        <div className="p-8 text-center text-sm text-muted-foreground">No hay fotos en este tratamiento aún.</div>
-                                    ) : (
-                                        <div className="relative">
-                                            {/* Main photo */}
-                                            <div className="relative h-72 bg-black/90 overflow-hidden">
-                                                {frames.map((frame, fi) => (
-                                                    <img
-                                                        key={fi}
-                                                        src={frame.url}
-                                                        alt={`Sesión ${frame.sessionIdx}`}
-                                                        onClick={() => setLightboxUrl(frame.url)}
-                                                        className={cn(
-                                                            'absolute inset-0 w-full h-full object-contain transition-opacity duration-700 cursor-zoom-in',
-                                                            fi === (slideshowIndex % frames.length) ? 'opacity-100' : 'opacity-0'
-                                                        )}
-                                                    />
-                                                ))}
-
-                                                {/* Session label overlay */}
-                                                {activeFrame && (
-                                                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-4 py-3">
-                                                        <p className="text-white text-sm font-semibold">
-                                                            Sesión {activeFrame.sessionIdx}
-                                                        </p>
-                                                        <p className="text-white/70 text-xs">
-                                                            {new Date(activeFrame.date).toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' })}
-                                                        </p>
-                                                    </div>
-                                                )}
-
-                                                {/* Prev / Next */}
-                                                {frames.length > 1 && (
-                                                    <>
-                                                        <button
-                                                            onClick={() => setSlideshowIndex(prev => (prev - 1 + frames.length) % frames.length)}
-                                                            className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 transition-colors cursor-pointer"
-                                                        ><ChevronLeft className="w-5 h-5" /></button>
-                                                        <button
-                                                            onClick={() => setSlideshowIndex(prev => (prev + 1) % frames.length)}
-                                                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 transition-colors cursor-pointer"
-                                                        ><ChevronRight className="w-5 h-5" /></button>
-                                                    </>
-                                                )}
-                                            </div>
-
-                                            {/* Controls bar */}
-                                            <div className="flex items-center justify-between px-4 py-2.5 border-t border-border/40">
-                                                {/* Dots */}
-                                                <div className="flex gap-1.5">
-                                                    {frames.map((_, fi) => (
-                                                        <button
-                                                            key={fi}
-                                                            onClick={() => setSlideshowIndex(fi)}
-                                                            className={cn(
-                                                                'w-2 h-2 rounded-full transition-all cursor-pointer',
-                                                                fi === (slideshowIndex % frames.length)
-                                                                    ? 'bg-primary scale-125'
-                                                                    : 'bg-muted-foreground/40 hover:bg-muted-foreground'
-                                                            )}
-                                                        />
-                                                    ))}
+                                    {!isVisualProgressCollapsed && (
+                                        <div className="bg-card">
+                                            {/* Treatment selector tabs */}
+                                            {cuponerasWithPhotos.length > 1 && (
+                                                <div className="flex gap-1 px-4 pt-4 pb-0 border-b border-border/40">
+                                                    {cuponerasWithPhotos.map(c => {
+                                                        const label = (Array.isArray(c.services) ? c.services[0] : c.services)?.name || 'Tratamiento'
+                                                        const isActive = c.id === (slideshowCuponeraId || cuponerasWithPhotos[0].id)
+                                                        return (
+                                                            <button
+                                                                key={c.id}
+                                                                onClick={() => { setSlideshowCuponeraId(c.id); setSlideshowIndex(0) }}
+                                                                className={cn(
+                                                                    'px-3 py-2 text-xs font-medium border-b-2 transition-colors cursor-pointer -mb-px',
+                                                                    isActive ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+                                                                )}
+                                                            >{label}</button>
+                                                        )
+                                                    })}
                                                 </div>
-                                                {/* Play / Pause */}
-                                                <button
-                                                    onClick={() => setSlideshowPlaying(p => !p)}
-                                                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                                                >
-                                                    {slideshowPlaying
-                                                        ? <><Pause className="w-3.5 h-3.5" /> Pausar</>
-                                                        : <><Play className="w-3.5 h-3.5" /> Reproducir</>}
-                                                </button>
-                                            </div>
+                                            )}
+
+                                            {frames.length === 0 ? (
+                                                <div className="p-8 text-center text-sm text-muted-foreground">No hay fotos en este tratamiento aún.</div>
+                                            ) : (
+                                                <div className="relative">
+                                                    {/* Main photo */}
+                                                    <div className="relative h-72 bg-black/90 overflow-hidden">
+                                                        {frames.map((frame, fi) => (
+                                                            <img
+                                                                key={fi}
+                                                                src={frame.url}
+                                                                alt={`Sesión ${frame.sessionIdx}`}
+                                                                onClick={() => setLightboxUrl(frame.url)}
+                                                                className={cn(
+                                                                    'absolute inset-0 w-full h-full object-contain transition-opacity duration-700 cursor-zoom-in',
+                                                                    fi === (slideshowIndex % frames.length) ? 'opacity-100' : 'opacity-0'
+                                                                )}
+                                                            />
+                                                        ))}
+
+                                                        {/* Session label overlay */}
+                                                        {activeFrame && (
+                                                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-4 py-3">
+                                                                <p className="text-white text-sm font-semibold">
+                                                                    Sesión {activeFrame.sessionIdx}
+                                                                </p>
+                                                                <p className="text-white/70 text-xs">
+                                                                    {new Date(activeFrame.date).toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                                                                </p>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Prev / Next */}
+                                                        {frames.length > 1 && (
+                                                            <>
+                                                                <button
+                                                                    onClick={() => setSlideshowIndex(prev => (prev - 1 + frames.length) % frames.length)}
+                                                                    className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 transition-colors cursor-pointer"
+                                                                ><ChevronLeft className="w-5 h-5" /></button>
+                                                                <button
+                                                                    onClick={() => setSlideshowIndex(prev => (prev + 1) % frames.length)}
+                                                                    className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 transition-colors cursor-pointer"
+                                                                ><ChevronRight className="w-5 h-5" /></button>
+                                                            </>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Controls bar */}
+                                                    <div className="flex items-center justify-between px-4 py-2.5 border-t border-border/40 bg-card">
+                                                        {/* Dots */}
+                                                        <div className="flex gap-1.5">
+                                                            {frames.map((_, fi) => (
+                                                                <button
+                                                                    key={fi}
+                                                                    onClick={() => setSlideshowIndex(fi)}
+                                                                    className={cn(
+                                                                        'w-2 h-2 rounded-full transition-all cursor-pointer',
+                                                                        fi === (slideshowIndex % frames.length)
+                                                                            ? 'bg-primary scale-125'
+                                                                            : 'bg-muted-foreground/30 hover:bg-muted-foreground/50'
+                                                                    )}
+                                                                />
+                                                            ))}
+                                                        </div>
+
+                                                        {/* Play / Pause */}
+                                                        <button
+                                                            onClick={() => setSlideshowPlaying(p => !p)}
+                                                            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                                                        >
+                                                            {slideshowPlaying
+                                                                ? <><Pause className="w-3.5 h-3.5" /> Pausar</>
+                                                                : <><Play className="w-3.5 h-3.5" /> Reproducir</>}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
