@@ -360,12 +360,30 @@ export function PatientDetails() {
 
         // If we are consuming a session, prefix the notes with the cuponera tag
         let finalNotes = historyForm.notes;
-        if (selectedCuponeraForConsuming) {
-            const serviceName = Array.isArray(selectedCuponeraForConsuming.services)
-                ? selectedCuponeraForConsuming.services[0]?.name
-                : selectedCuponeraForConsuming.services?.name;
-            const fallbackNotes = `Se consumió manualmente la sesión ${selectedCuponeraForConsuming.used_sessions + 1} de la cuponera asignada de ${serviceName || 'Tratamiento'}.`;
-            finalNotes = `[CUPONERA:${selectedCuponeraForConsuming.id}] ${historyForm.notes.trim() || fallbackNotes}`;
+        
+        // Auto-associate if the typed service matches an active session-based cuponera
+        let activeCuponeraToConsume = selectedCuponeraForConsuming;
+        if (!activeCuponeraToConsume && historyForm.service_type) {
+            const trimmedServiceType = historyForm.service_type.trim().toLowerCase();
+            const matchingCup = cuponeras.find(c => {
+                if (c.cuponera_type === 'months') return false; // only sessions
+                const available = c.total_sessions - c.used_sessions;
+                if (available <= 0) return false;
+                
+                const sName = (Array.isArray(c.services) ? c.services[0] : c.services)?.name || '';
+                return sName.trim().toLowerCase() === trimmedServiceType;
+            });
+            if (matchingCup) {
+                activeCuponeraToConsume = matchingCup;
+            }
+        }
+
+        if (activeCuponeraToConsume) {
+            const serviceName = Array.isArray(activeCuponeraToConsume.services)
+                ? activeCuponeraToConsume.services[0]?.name
+                : activeCuponeraToConsume.services?.name;
+            const fallbackNotes = `Se consumió manualmente la sesión ${activeCuponeraToConsume.used_sessions + 1} de la cuponera asignada de ${serviceName || 'Tratamiento'}.`;
+            finalNotes = `[CUPONERA:${activeCuponeraToConsume.id}] ${historyForm.notes.trim() || fallbackNotes}`;
         }
 
         const { data: newEntry, error } = await supabase
@@ -405,11 +423,11 @@ export function PatientDetails() {
             }
 
             // If we are consuming a session, increment used_sessions!
-            if (selectedCuponeraForConsuming) {
+            if (activeCuponeraToConsume) {
                 await supabase
                     .from('cuponeras')
-                    .update({ used_sessions: selectedCuponeraForConsuming.used_sessions + 1 })
-                    .eq('id', selectedCuponeraForConsuming.id);
+                    .update({ used_sessions: activeCuponeraToConsume.used_sessions + 1 })
+                    .eq('id', activeCuponeraToConsume.id);
             }
 
             setIsHistoryModalOpen(false)
