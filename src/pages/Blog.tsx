@@ -283,13 +283,13 @@ export function Blog() {
                                     </div>
 
                                     {/* Title */}
-                                    <h3 className={cn("font-bold text-sm leading-snug", colors.text)}>
+                                    <h3 className={cn("font-bold text-sm leading-snug break-words", colors.text)}>
                                         {note.title}
                                     </h3>
 
                                     {/* Content preview */}
                                     {note.content && (
-                                        <p className={cn("text-xs mt-2 leading-relaxed opacity-80", colors.text)}>
+                                        <p className={cn("text-xs mt-2 leading-relaxed opacity-80 break-words", colors.text)}>
                                             {isLong ? note.content.slice(0, CONTENT_PREVIEW_LENGTH) + '…' : note.content}
                                         </p>
                                     )}
@@ -399,7 +399,7 @@ export function Blog() {
                                         {readingColors.category}
                                     </span>
                                 </div>
-                                <h2 className={cn("text-xl font-bold leading-snug", readingColors.text)}>
+                                <h2 className={cn("text-xl font-bold leading-snug break-words", readingColors.text)}>
                                     {readingNote.title}
                                 </h2>
                                 <div className="flex items-center gap-2 mt-3">
@@ -468,7 +468,7 @@ export function Blog() {
                                     <div className="prose-article">
                                         {readingNote.content.split('\n\n').map((paragraph, idx) => (
                                             paragraph.trim() && (
-                                                <p key={idx} className="text-sm leading-[1.8] mb-4 opacity-90">
+                                                <p key={idx} className="text-sm leading-[1.8] mb-4 opacity-90 break-words">
                                                     {paragraph.split('\n').map((line, lidx, arr) => (
                                                         <span key={lidx}>
                                                             {line}
@@ -619,9 +619,9 @@ export function Blog() {
                                             {getColorClasses(form.color).category}
                                         </span>
                                     </div>
-                                    <p className={cn("text-xs font-bold", getColorClasses(form.color).text)}>{form.title}</p>
+                                    <p className={cn("text-xs font-bold break-words", getColorClasses(form.color).text)}>{form.title}</p>
                                     {form.content.trim() && (
-                                        <p className={cn("text-[10px] mt-1 opacity-70 line-clamp-3", getColorClasses(form.color).text)}>
+                                        <p className={cn("text-[10px] mt-1 opacity-70 line-clamp-3 break-words", getColorClasses(form.color).text)}>
                                             {form.content}
                                         </p>
                                     )}
