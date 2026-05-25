@@ -317,7 +317,7 @@ export function PatientDetails() {
         setEditHistoryForm({
             service_type: entry.service_type || '',
             professional_id: p ? entry.professional_id || '' : '',
-            notes: entry.notes || '',
+            notes: (entry.notes || '').replace(/\[CUPONERA:[^\]]+\]\s*/, ''),
             date: new Date(entry.created_at).toISOString().split('T')[0]
         });
         setIsEditingHistory(true);
@@ -457,7 +457,12 @@ export function PatientDetails() {
                 .update({
                     service_type: editHistoryForm.service_type,
                     professional_id: editHistoryForm.professional_id || null,
-                    notes: editHistoryForm.notes,
+                    notes: (() => {
+                        const originalNotes = selectedHistoryEntry.notes || '';
+                        const match = originalNotes.match(/\[CUPONERA:[^\]]+\]/);
+                        const cuponeraTag = match ? `${match[0]} ` : '';
+                        return cuponeraTag + editHistoryForm.notes;
+                    })(),
                     created_at: createdAt
                 })
                 .eq('id', selectedHistoryEntry.id)
@@ -843,16 +848,14 @@ export function PatientDetails() {
                             )
                         })()}
 
-                        {historyEntries.length === 0 && cuponeras.length === 0 && appointments.filter(a => a.notes?.trim()).length === 0 ? (
+                        {historyEntries.length === 0 && appointments.filter(a => a.notes?.trim() && !a.cuponera_id).length === 0 ? (
                             <div className="text-sm text-muted-foreground border border-border/50 border-dashed rounded-lg p-8 text-center bg-muted/20">
-                                No hay tratamientos asignados ni entradas en la historia clínica aún.
+                                No hay evoluciones clínicas ni notas registradas aún.
                             </div>
                         ) : (
                             <div className="space-y-4">
                                 {[
-                                    ...cuponeras.filter(c => c.total_sessions - c.used_sessions > 0).map(c => ({ ...c, type: 'cuponera', sortDate: c.created_at })),
                                     ...historyEntries
-                                        .filter(h => !h.notes?.includes('[CUPONERA:'))
                                         .map(h => ({ 
                                             ...h, 
                                             type: 'history', 
@@ -861,205 +864,26 @@ export function PatientDetails() {
                                         })),
                                     ...appointments.filter(a => a.notes?.trim() && !a.cuponera_id).map(a => ({ ...a, type: 'appointment', sortDate: a.start_time }))
                                 ].sort((a, b) => new Date(b.sortDate).getTime() - new Date(a.sortDate).getTime()).map(item => {
-                                    if (item.type === 'cuponera') {
-                                        const service = Array.isArray(item.services) ? item.services[0] : item.services
-                                        const cuponeraRedemptions = [
-                                            ...appointments.filter(a => a.cuponera_id === item.id).map(a => ({
-                                                id: a.id,
-                                                date: new Date(a.start_time),
-                                                professional: Array.isArray(a.professionals) ? a.professionals[0] : a.professionals,
-                                                note: a.notes,
-                                                type: 'Turno',
-                                                rawEntry: null
-                                            })),
-                                            ...historyEntries.filter(h => h.notes && h.notes.includes(`[CUPONERA:${item.id}]`)).map(h => ({
-                                                id: h.id,
-                                                date: new Date(h.created_at),
-                                                professional: Array.isArray(h.professionals) ? h.professionals[0] : h.professionals,
-                                                note: h.notes?.replace(`[CUPONERA:${item.id}] `, ''),
-                                                type: 'Canje Manual',
-                                                rawEntry: h
-                                            }))
-                                        ].sort((a, b) => a.date.getTime() - b.date.getTime());
+                                    if (item.type === 'history') {
+                                        const prof = Array.isArray(item.professionals) ? item.professionals[0] : item.professionals;
+                                        
+                                        // Match cuponera info if notes contain [CUPONERA:uuid]
+                                        let cuponeraInfo = null;
+                                        let serviceName = '';
+                                        const originalNotes = item.notes || '';
+                                        const match = originalNotes.match(/\[CUPONERA:([^\]]+)\]/);
+                                        if (match && match[1]) {
+                                            const cupId = match[1];
+                                            const matchedCup = cuponeras.find(c => c.id === cupId);
+                                            if (matchedCup) {
+                                                cuponeraInfo = matchedCup;
+                                                const s = Array.isArray(matchedCup.services) ? matchedCup.services[0] : matchedCup.services;
+                                                serviceName = s?.name || 'Tratamiento';
+                                            }
+                                        }
+                                        
+                                        const cleanNotesText = originalNotes.replace(/\[CUPONERA:[^\]]+\]\s*/, '') || 'Sin evolución descriptiva.';
 
-                                        return (
-                                            <div 
-                                                key={`cup-${item.id}`} 
-                                                onClick={() => {
-                                                    setSelectedCuponera(item);
-                                                    setEditCuponeraForm({
-                                                        cuponera_type: item.cuponera_type || 'sessions',
-                                                        total_sessions: item.total_sessions,
-                                                        total_months: item.total_months || 0,
-                                                        start_date: item.start_date || '',
-                                                        invoice_number: item.invoice_number || '',
-                                                        amount_paid: item.amount_paid?.toString() || '',
-                                                        is_active: item.is_active
-                                                    });
-                                                }}
-                                                className="border border-primary/20 shadow-sm rounded-lg p-5 bg-primary/5 relative overflow-hidden cursor-pointer hover:border-primary shadow-md transition-all group hover:scale-[1.01]"
-                                            >
-                                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-                                                    <div className="bg-primary/10 p-1.5 rounded-full text-primary">
-                                                        <Pencil className="w-4 h-4" />
-                                                    </div>
-                                                </div>
-                                                <div className="absolute top-0 left-0 w-1.5 h-full bg-primary rounded-l-lg"></div>
-                                                <div className="flex justify-between items-start mb-2 pl-1">
-                                                    <div>
-                                                        <span className="text-[10px] font-bold uppercase tracking-wider text-primary mb-1 block">
-                                                            {(item.cuponera_type === 'months') ? 'Pase Mensual Activo' : 'Tratamiento Actual Asignado'}
-                                                        </span>
-                                                        <h4 className="font-semibold text-foreground text-base leading-tight group-hover:text-primary transition-colors">{service?.name || "Servicio Genérico"}</h4>
-                                                    </div>
-                                                    <span className="text-[11px] bg-background px-2.5 py-1 rounded-full border border-border/50 font-medium text-foreground whitespace-nowrap shadow-sm">
-                                                        {(item.cuponera_type === 'months')
-                                                            ? `Mes ${(item.used_months || 0)} / ${item.total_months}`
-                                                            : `Sesiones: ${item.used_sessions} / ${item.total_sessions}`
-                                                        }
-                                                    </span>
-                                                </div>
-                                                <div className="pl-1 mt-3">
-                                                    <p className="text-[13px] text-muted-foreground mb-3">
-                                                        {(item.cuponera_type === 'months')
-                                                            ? `Inicio: ${new Date(item.start_date + 'T12:00:00').toLocaleDateString('es-AR')}`
-                                                            : `Adquirido el ${new Date(item.created_at).toLocaleDateString('es-AR') + ' ' + new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`
-                                                        }
-                                                    </p>
-
-                                                    {/* Aviso vencimiento próximo (cuponeras mensuales) */}
-                                                    {item.cuponera_type === 'months' && item.start_date && item.total_months && (() => {
-                                                        const endDate = new Date(item.start_date + 'T12:00:00')
-                                                        endDate.setMonth(endDate.getMonth() + item.total_months)
-                                                        const daysLeft = Math.ceil((endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-                                                        if (daysLeft <= 0) return (
-                                                            <div className="mb-3 bg-red-500/10 border border-red-500/20 rounded-lg p-2.5 flex items-center gap-2">
-                                                                <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-                                                                <span className="text-xs text-red-600 dark:text-red-400 font-medium">Pase vencido</span>
-                                                            </div>
-                                                        )
-                                                        if (daysLeft <= 7) return (
-                                                            <div className="mb-3 bg-amber-500/10 border border-amber-500/20 rounded-lg p-2.5 flex items-center gap-2">
-                                                                <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                                                                <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
-                                                                    ¡Vence en {daysLeft} día{daysLeft !== 1 ? 's' : ''}! — {endDate.toLocaleDateString('es-AR')}
-                                                                </span>
-                                                            </div>
-                                                        )
-                                                        return (
-                                                            <p className="text-[11px] text-muted-foreground mb-3">
-                                                                Vence el {endDate.toLocaleDateString('es-AR')} — Quedan {daysLeft} días
-                                                            </p>
-                                                        )
-                                                    })()}
-
-                                                    {/* Progress bar */}
-                                                    {(() => {
-                                                        const isMonthly = item.cuponera_type === 'months'
-                                                        const used = isMonthly ? (item.used_months || 0) : item.used_sessions
-                                                        const total = isMonthly ? (item.total_months || 1) : item.total_sessions
-                                                        const pct = total > 0 ? used / total : 0
-                                                        return (
-                                                            <div className="mb-3">
-                                                                <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
-                                                                    <span>{used} de {total} {isMonthly ? 'meses transcurridos' : 'sesiones usadas'}</span>
-                                                                    <span>{Math.round(pct * 100)}%</span>
-                                                                </div>
-                                                                <div className="w-full h-1.5 bg-muted/50 rounded-full overflow-hidden">
-                                                                    <div
-                                                                        className={cn(
-                                                                            "h-full rounded-full transition-all duration-500",
-                                                                            pct >= 1 || pct > 0.75 ? "bg-red-500" : pct > 0.5 ? "bg-amber-500" : "bg-primary/70"
-                                                                        )}
-                                                                        style={{ width: `${Math.min(100, pct * 100)}%` }}
-                                                                    />
-                                                                </div>
-
-                                                                {!isMonthly && (
-                                                                    <button
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            startConsumeSessionFlow(item);
-                                                                        }}
-                                                                        disabled={item.used_sessions >= item.total_sessions}
-                                                                        className={cn(
-                                                                            "mt-3.5 w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all border cursor-pointer disabled:cursor-not-allowed",
-                                                                            item.used_sessions >= item.total_sessions
-                                                                                ? "bg-transparent text-muted-foreground border-border/50"
-                                                                                : "bg-primary hover:bg-primary/90 text-primary-foreground border-transparent shadow-sm"
-                                                                        )}
-                                                                    >
-                                                                        {item.used_sessions >= item.total_sessions
-                                                                            ? 'Sin sesiones disponibles'
-                                                                            : <><CheckCircle2 className="w-3.5 h-3.5" /> Consumir 1 Sesión</>
-                                                                        }
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        )
-                                                    })()}
-
-                                                    {cuponeraRedemptions.length > 0 && (
-                                                        <details className="group/details mt-3">
-                                                            <summary className="cursor-pointer text-xs font-medium text-primary flex items-center gap-1 hover:text-primary/80 transition-colors w-max select-none">
-                                                                Ver sesiones consumidas ({cuponeraRedemptions.length})
-                                                                <svg className="w-3 h-3 transition-transform group-open/details:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                                                </svg>
-                                                            </summary>
-                                                            <div className="mt-3 space-y-2 pl-2 border-l-2 border-primary/20 bg-background/50 rounded-r-lg p-2">
-                                                                {cuponeraRedemptions.map((r, i, arr) => {
-                                                                    const sessionNumber = Math.max(1, item.used_sessions - (arr.length - 1 - i));
-                                                                    return (
-                                                                        <div key={r.id} className="text-xs space-y-1 pb-2 border-b border-border/50 last:border-0 last:pb-0">
-                                                                            <div className="flex justify-between items-center font-medium text-foreground">
-                                                                                <span>
-                                                                                    Sesión {sessionNumber} - {r.date.toLocaleDateString('es-AR') + ' ' + r.date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-                                                                                    {r.rawEntry && (
-                                                                                        <button
-                                                                                            onClick={(e) => {
-                                                                                                e.stopPropagation();
-                                                                                                openEditHistoryEntryDirectly(r.rawEntry);
-                                                                                            }}
-                                                                                            className="text-primary hover:underline hover:text-primary/80 transition-colors ml-2 font-bold cursor-pointer inline-flex items-center gap-0.5"
-                                                                                            title="Editar notas o fotos de esta sesión"
-                                                                                        >
-                                                                                            <Pencil className="w-2.5 h-2.5" /> Editar
-                                                                                        </button>
-                                                                                    )}
-                                                                                </span>
-                                                                                <div className="flex items-center gap-2">
-                                                                                    <span className="text-[10px] px-1.5 py-0.5 rounded-sm bg-muted/50 border border-border/50 text-muted-foreground">{r.type}</span>
-                                                                                    <span className="text-muted-foreground">{r.professional ? `${r.professional.first_name} ${r.professional.last_name}` : 'Sin profesional'}</span>
-                                                                                </div>
-                                                                            </div>
-                                                                            {r.note && (
-                                                                                <p className="text-muted-foreground whitespace-pre-wrap mt-1 pb-1">{r.note}</p>
-                                                                            )}
-                                                                            {historyPhotos[r.id]?.length > 0 && (
-                                                                                <div className="flex gap-1.5 mt-1.5 pb-1">
-                                                                                    {historyPhotos[r.id].map((url, pi) => (
-                                                                                        <img
-                                                                                            key={pi}
-                                                                                            src={url}
-                                                                                            alt={`Foto ${pi + 1}`}
-                                                                                            onClick={(e) => { e.stopPropagation(); setLightboxUrl(url); }}
-                                                                                            className="w-10 h-10 object-cover rounded border border-border hover:opacity-90 cursor-zoom-in transition-opacity"
-                                                                                        />
-                                                                                    ))}
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    )
-                                                                })}
-                                                            </div>
-                                                        </details>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )
-                                    } else if (item.type === 'history') {
-                                        const prof = Array.isArray(item.professionals) ? item.professionals[0] : item.professionals
                                         return (
                                             <div
                                                 key={`hist-${item.id}`}
@@ -1072,16 +896,26 @@ export function PatientDetails() {
                                                     </div>
                                                 </div>
                                                 <div className="absolute top-0 left-0 w-1 h-full bg-primary/40 rounded-l-lg group-hover:bg-primary transition-colors"></div>
-                                                <div className="flex justify-between text-sm mb-3">
-                                                    <span className="font-semibold text-foreground text-base group-hover:text-primary transition-colors">{item.service_type || 'Visita General'}</span>
-                                                    <span className="text-muted-foreground bg-muted/50 px-2 py-0.5 rounded border border-border/50">
+                                                <div className="flex justify-between items-start text-sm mb-3">
+                                                    <div>
+                                                        <span className="font-semibold text-foreground text-base group-hover:text-primary transition-colors block">
+                                                            {item.service_type || 'Visita General'}
+                                                        </span>
+                                                        {cuponeraInfo && (
+                                                            <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded uppercase tracking-wider mt-1.5">
+                                                                <CreditCard className="w-3 h-3" />
+                                                                Sesión de {serviceName}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <span className="text-muted-foreground bg-muted/50 px-2 py-0.5 rounded border border-border/50 text-[13px]">
                                                         {new Date(item.created_at).toLocaleDateString('es-AR') + ' ' + new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} - {prof ? `Dr / a.${prof.first_name} ${prof.last_name}` : 'Sin profesional asignado'}
                                                     </span>
                                                 </div>
                                                 <p className="text-sm text-muted-foreground/90 whitespace-pre-wrap leading-relaxed line-clamp-3">
-                                                    {item.notes || 'Sin evolución descriptiva.'}
+                                                    {cleanNotesText}
                                                 </p>
-                                                {item.notes && item.notes.length > 150 && (
+                                                {cleanNotesText && cleanNotesText.length > 150 && (
                                                     <div className="text-xs text-primary mt-2 font-medium">Ver detalles completos...</div>
                                                 )}
                                                 {/* Photo thumbnails */}
@@ -1900,26 +1734,58 @@ export function PatientDetails() {
                             </div>
 
                             {/* READ MODE */}
-                            {!isEditingHistory && (
-                                <div className="overflow-y-auto flex-1 pr-2 space-y-4">
-                                    <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
-                                        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Profesional a Cargo</h4>
-                                        <p className="text-sm text-foreground font-medium">
-                                            {(() => {
-                                                const p = Array.isArray(selectedHistoryEntry.professionals) ? selectedHistoryEntry.professionals[0] : selectedHistoryEntry.professionals
-                                                return p ? `Dr / a. ${p.first_name} ${p.last_name}` : 'Sin registro de profesional'
-                                            })()}
-                                        </p>
-                                    </div>
+                            {!isEditingHistory && (() => {
+                                const originalNotes = selectedHistoryEntry.notes || '';
+                                let cuponeraInfo = null;
+                                let serviceName = '';
+                                const match = originalNotes.match(/\[CUPONERA:([^\]]+)\]/);
+                                if (match && match[1]) {
+                                    const cupId = match[1];
+                                    const matchedCup = cuponeras.find(c => c.id === cupId);
+                                    if (matchedCup) {
+                                        cuponeraInfo = matchedCup;
+                                        const s = Array.isArray(matchedCup.services) ? matchedCup.services[0] : matchedCup.services;
+                                        serviceName = s?.name || 'Tratamiento';
+                                    }
+                                }
+                                const cleanNotesText = originalNotes.replace(/\[CUPONERA:[^\]]+\]\s*/, '') || 'No se registraron notas en esta evolución.';
+                                
+                                return (
+                                    <div className="overflow-y-auto flex-1 pr-2 space-y-4">
+                                        {cuponeraInfo && (
+                                            <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 flex items-center justify-between">
+                                                <div className="flex items-center gap-2.5">
+                                                    <CreditCard className="w-5 h-5 text-primary" />
+                                                    <div>
+                                                        <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Sesión de Tratamiento</h4>
+                                                        <p className="text-sm text-foreground font-semibold mt-0.5">{serviceName}</p>
+                                                    </div>
+                                                </div>
+                                                <span className="text-xs bg-primary/10 text-primary border border-primary/20 px-2.5 py-1 rounded-full font-medium">
+                                                    Sesiones: {cuponeraInfo.used_sessions} / {cuponeraInfo.total_sessions}
+                                                </span>
+                                            </div>
+                                        )}
 
-                                    <div>
-                                        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Notas y Evolución</h4>
-                                        <div className="bg-background border border-border/50 p-4 rounded-lg text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed min-h-[150px]">
-                                            {selectedHistoryEntry.notes || 'No se registraron notas en esta evolución.'}
+                                        <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
+                                            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Profesional a Cargo</h4>
+                                            <p className="text-sm text-foreground font-medium">
+                                                {(() => {
+                                                    const p = Array.isArray(selectedHistoryEntry.professionals) ? selectedHistoryEntry.professionals[0] : selectedHistoryEntry.professionals
+                                                    return p ? `Dr / a. ${p.first_name} ${p.last_name}` : 'Sin registro de profesional'
+                                                })()}
+                                            </p>
+                                        </div>
+
+                                        <div>
+                                            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Notas y Evolución</h4>
+                                            <div className="bg-background border border-border/50 p-4 rounded-lg text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed min-h-[150px]">
+                                                {cleanNotesText}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            )}
+                                );
+                            })()}
 
                             {/* EDIT MODE */}
                             {isEditingHistory && (
@@ -2124,7 +1990,7 @@ export function PatientDetails() {
                                                 setEditHistoryForm({
                                                     service_type: selectedHistoryEntry.service_type || '',
                                                     professional_id: p ? selectedHistoryEntry.professional_id || '' : '',
-                                                    notes: selectedHistoryEntry.notes || '',
+                                                    notes: (selectedHistoryEntry.notes || '').replace(/\[CUPONERA:[^\]]+\]\s*/, ''),
                                                     date: new Date(selectedHistoryEntry.created_at).toISOString().split('T')[0]
                                                 })
                                                 setIsEditingHistory(true)
