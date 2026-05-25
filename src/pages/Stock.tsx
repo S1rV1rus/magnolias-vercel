@@ -39,13 +39,13 @@ const emptyItemForm = {
     name: '',
     unit: 'unidades',
     description: '',
-    min_quantity: 0,
-    initial_stock: 0
+    min_quantity: 0 as number | string,
+    initial_stock: 0 as number | string
 }
 
 const emptyTransactionForm = {
     type: 'usage' as 'addition' | 'usage',
-    quantity: 1,
+    quantity: 1 as number | string,
     user_name: '',
     note: ''
 }
@@ -750,7 +750,7 @@ export function Stock() {
                                             min="0"
                                             step="any"
                                             value={itemForm.initial_stock}
-                                            onChange={e => setItemForm(prev => ({ ...prev, initial_stock: Number(e.target.value) }))}
+                                            onChange={e => setItemForm(prev => ({ ...prev, initial_stock: e.target.value }))}
                                             className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
                                         />
                                     </div>
@@ -768,7 +768,7 @@ export function Stock() {
                                         step="any"
                                         required
                                         value={itemForm.min_quantity}
-                                        onChange={e => setItemForm(prev => ({ ...prev, min_quantity: Number(e.target.value) }))}
+                                        onChange={e => setItemForm(prev => ({ ...prev, min_quantity: e.target.value }))}
                                         className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
                                     />
                                 </div>
@@ -858,7 +858,7 @@ export function Stock() {
                                         step="any"
                                         required
                                         value={transactionForm.quantity}
-                                        onChange={e => setTransactionForm(prev => ({ ...prev, quantity: Number(e.target.value) }))}
+                                        onChange={e => setTransactionForm(prev => ({ ...prev, quantity: e.target.value }))}
                                         className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
                                     />
                                 </div>
