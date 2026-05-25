@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { ArrowLeft, Calendar, CalendarDays, FileText, CreditCard, Plus, Ticket, CheckCircle2, X, User, Pencil, Trash2, ImageIcon, ChevronLeft, ChevronRight, Play, Pause, Images, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react'
+import { ArrowLeft, Calendar, CalendarDays, FileText, CreditCard, Plus, Ticket, CheckCircle2, X, User, Pencil, Trash2, ImageIcon, ChevronLeft, ChevronRight, Play, Pause, Images, AlertCircle, ChevronDown, ChevronUp, Lock } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
 export function PatientDetails() {
@@ -844,9 +844,7 @@ export function PatientDetails() {
                                                         }));
                                                     });
 
-                                                    if (frames.length <= 1) return null; // Only show comparison slider if there's more than 1 photo!
-
-                                                    const activeFrame = frames[slideshowIndex % frames.length];
+                                                    const activeFrame = frames.length > 0 ? frames[slideshowIndex % frames.length] : null;
 
                                                     return (
                                                         <div className="mt-4 pt-4 border-t border-border/40 text-left" onClick={e => e.stopPropagation()}>
@@ -858,46 +856,53 @@ export function PatientDetails() {
                                                                 }}
                                                                 className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors font-semibold cursor-pointer outline-none select-none"
                                                             >
-                                                                <Images className="w-3.5 h-3.5" />
+                                                                <CreditCard className="w-3.5 h-3.5" />
                                                                 {expandedSlideshowId === item.id 
-                                                                    ? 'Ocultar Comparativa de Progreso Visual' 
-                                                                    : `Ver Comparativa de Progreso Visual del Tratamiento (${frames.length} fotos)`
+                                                                    ? 'Ocultar Control de Sesiones y Progreso' 
+                                                                    : `Ver Control de Sesiones y Progreso (${sessionEntries.length}/${cuponeraInfo.total_sessions} ses.)`
                                                                 }
                                                                 {expandedSlideshowId === item.id ? <ChevronUp className="w-3 h-3 text-primary" /> : <ChevronDown className="w-3 h-3 text-primary" />}
                                                             </button>
                                                             
                                                             {expandedSlideshowId === item.id && (
-                                                                <div className="mt-3 border border-border/60 rounded-lg overflow-hidden bg-background animate-in slide-in-from-top-2 duration-200">
-                                                                    {/* Main photo */}
-                                                                    <div className="relative h-64 bg-black/90 overflow-hidden">
-                                                                        {frames.map((frame, fi) => (
-                                                                            <img
-                                                                                key={fi}
-                                                                                src={frame.url}
-                                                                                alt={`Sesión ${frame.sessionIdx}`}
-                                                                                onClick={() => setLightboxUrl(frame.url)}
-                                                                                className={cn(
-                                                                                    'absolute inset-0 w-full h-full object-contain transition-opacity duration-700 cursor-zoom-in',
-                                                                                    fi === (slideshowIndex % frames.length) ? 'opacity-100' : 'opacity-0'
-                                                                                )}
-                                                                            />
-                                                                        ))}
-
-                                                                        {/* Session label overlay */}
-                                                                        {activeFrame && (
-                                                                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/75 to-transparent px-3 py-2 text-left">
-                                                                                <p className="text-white text-xs font-semibold">
-                                                                                    Sesión {activeFrame.sessionIdx}
-                                                                                </p>
-                                                                                <p className="text-white/70 text-[10px]">
-                                                                                    {new Date(activeFrame.date).toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' })}
-                                                                                </p>
+                                                                <div className="mt-3 space-y-4 animate-in slide-in-from-top-2 duration-200">
+                                                                    {/* 1. Visual Progress Comparison (ONLY IF frames.length > 1) */}
+                                                                    {frames.length > 1 && (
+                                                                        <div className="border border-border/60 rounded-lg overflow-hidden bg-background">
+                                                                            <div className="px-3 py-2 bg-muted/30 border-b border-border/40 flex items-center justify-between">
+                                                                                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                                                                                    <Images className="w-3.5 h-3.5 text-primary" />
+                                                                                    Comparativa de Progreso Visual
+                                                                                </span>
+                                                                                <span className="text-[10px] text-muted-foreground">{frames.length} fotos registradas</span>
                                                                             </div>
-                                                                        )}
+                                                                            <div className="relative h-64 bg-black/90 overflow-hidden">
+                                                                                {frames.map((frame, fi) => (
+                                                                                    <img
+                                                                                        key={fi}
+                                                                                        src={frame.url}
+                                                                                        alt={`Sesión ${frame.sessionIdx}`}
+                                                                                        onClick={() => setLightboxUrl(frame.url)}
+                                                                                        className={cn(
+                                                                                            'absolute inset-0 w-full h-full object-contain transition-opacity duration-700 cursor-zoom-in',
+                                                                                            fi === (slideshowIndex % frames.length) ? 'opacity-100' : 'opacity-0'
+                                                                                        )}
+                                                                                    />
+                                                                                ))}
 
-                                                                        {/* Prev / Next */}
-                                                                        {frames.length > 1 && (
-                                                                            <>
+                                                                                {/* Session label overlay */}
+                                                                                {activeFrame && (
+                                                                                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/75 to-transparent px-3 py-2 text-left">
+                                                                                        <p className="text-white text-xs font-semibold">
+                                                                                            Sesión {activeFrame.sessionIdx}
+                                                                                        </p>
+                                                                                        <p className="text-white/70 text-[10px]">
+                                                                                            {new Date(activeFrame.date).toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                                                                                        </p>
+                                                                                    </div>
+                                                                                )}
+
+                                                                                {/* Prev / Next */}
                                                                                 <button
                                                                                     type="button"
                                                                                     onClick={() => setSlideshowIndex(prev => (prev - 1 + frames.length) % frames.length)}
@@ -908,39 +913,162 @@ export function PatientDetails() {
                                                                                     onClick={() => setSlideshowIndex(prev => (prev + 1) % frames.length)}
                                                                                     className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 transition-colors cursor-pointer"
                                                                                 ><ChevronRight className="w-4 h-4" /></button>
-                                                                            </>
-                                                                        )}
-                                                                    </div>
+                                                                            </div>
 
-                                                                    {/* Controls bar */}
-                                                                    <div className="flex items-center justify-between px-3 py-2 bg-card border-t border-border/40">
-                                                                        {/* Dots */}
-                                                                        <div className="flex gap-1">
-                                                                            {frames.map((_, fi) => (
+                                                                            {/* Controls bar */}
+                                                                            <div className="flex items-center justify-between px-3 py-2 bg-card border-t border-border/40">
+                                                                                {/* Dots */}
+                                                                                <div className="flex gap-1">
+                                                                                    {frames.map((_, fi) => (
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            key={fi}
+                                                                                            onClick={() => setSlideshowIndex(fi)}
+                                                                                            className={cn(
+                                                                                                'w-1.5 h-1.5 rounded-full transition-all cursor-pointer',
+                                                                                                fi === (slideshowIndex % frames.length)
+                                                                                                    ? 'bg-primary scale-125'
+                                                                                                    : 'bg-muted-foreground/30 hover:bg-muted-foreground/50'
+                                                                                            )}
+                                                                                        />
+                                                                                    ))}
+                                                                                </div>
+
+                                                                                {/* Play / Pause */}
                                                                                 <button
                                                                                     type="button"
-                                                                                    key={fi}
-                                                                                    onClick={() => setSlideshowIndex(fi)}
-                                                                                    className={cn(
-                                                                                        'w-1.5 h-1.5 rounded-full transition-all cursor-pointer',
-                                                                                        fi === (slideshowIndex % frames.length)
-                                                                                            ? 'bg-primary scale-125'
-                                                                                            : 'bg-muted-foreground/30 hover:bg-muted-foreground/50'
-                                                                                    )}
-                                                                                />
-                                                                            ))}
+                                                                                    onClick={() => setSlideshowPlaying(p => !p)}
+                                                                                    className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                                                                                >
+                                                                                    {slideshowPlaying
+                                                                                        ? <><Pause className="w-3 h-3" /> Pausar</>
+                                                                                        : <><Play className="w-3 h-3" /> Reproducir</>}
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+
+                                                                    {/* 2. Unified Session Control Grid */}
+                                                                    <div className="space-y-2.5">
+                                                                        <div className="flex items-center justify-between pb-1 border-b border-border/40">
+                                                                            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                                                                                <Ticket className="w-3.5 h-3.5 text-primary" />
+                                                                                Estado y Control de Sesiones ({sessionEntries.length} de {cuponeraInfo.total_sessions} consumidas)
+                                                                            </span>
                                                                         </div>
 
-                                                                        {/* Play / Pause */}
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => setSlideshowPlaying(p => !p)}
-                                                                            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                                                                        >
-                                                                            {slideshowPlaying
-                                                                                ? <><Pause className="w-3 h-3" /> Pausar</>
-                                                                                : <><Play className="w-3 h-3" /> Reproducir</>}
-                                                                        </button>
+                                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                                            {(() => {
+                                                                                const sessionCards = [];
+                                                                                for (let i = 0; i < cuponeraInfo.total_sessions; i++) {
+                                                                                    const entry = sessionEntries[i];
+                                                                                    if (entry) {
+                                                                                        // Consumed session
+                                                                                        const entryProf = Array.isArray(entry.professionals) ? entry.professionals[0] : entry.professionals;
+                                                                                        const cleanNotes = entry.notes?.replace(/\[CUPONERA:[^\]]+\]\s*/, '') || 'Sin notas registradas.';
+                                                                                        const entryPhotos = historyPhotos[entry.id] || [];
+
+                                                                                        sessionCards.push(
+                                                                                            <div key={i} className="border border-border/60 bg-muted/10 rounded-lg p-3.5 relative overflow-hidden flex flex-col justify-between hover:border-primary/40 transition-colors shadow-sm">
+                                                                                                <div>
+                                                                                                    <div className="flex items-center justify-between mb-1.5">
+                                                                                                        <span className="text-xs font-bold text-foreground">Sesión {i + 1}</span>
+                                                                                                        <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-green-500/10 text-green-600 border border-green-500/20">Consumida</span>
+                                                                                                    </div>
+                                                                                                    
+                                                                                                    <div className="text-[10px] text-muted-foreground flex flex-col gap-0.5 mb-2">
+                                                                                                        <span>Fecha: {new Date(entry.created_at).toLocaleDateString('es-AR')}</span>
+                                                                                                        {entryProf && <span>Profesional: {entryProf.first_name} {entryProf.last_name}</span>}
+                                                                                                    </div>
+
+                                                                                                    <p className="text-[11px] text-muted-foreground/90 line-clamp-2 italic mb-2">
+                                                                                                        "{cleanNotes}"
+                                                                                                    </p>
+
+                                                                                                    {entryPhotos.length > 0 && (
+                                                                                                        <div className="flex gap-1 mb-2.5">
+                                                                                                            {entryPhotos.map((url, pidx) => (
+                                                                                                                <img
+                                                                                                                    key={pidx}
+                                                                                                                    src={url}
+                                                                                                                    alt={`Sesión ${i + 1} Foto ${pidx + 1}`}
+                                                                                                                    onClick={() => setLightboxUrl(url)}
+                                                                                                                    className="w-8 h-8 object-cover rounded border border-border hover:opacity-95 cursor-zoom-in"
+                                                                                                                />
+                                                                                                            ))}
+                                                                                                        </div>
+                                                                                                    )}
+                                                                                                </div>
+
+                                                                                                <div className="pt-2 border-t border-border/30 flex justify-end">
+                                                                                                    <button
+                                                                                                        type="button"
+                                                                                                        onClick={() => openEditHistoryEntryDirectly(entry)}
+                                                                                                        className="text-[10px] font-semibold text-primary hover:text-primary/80 flex items-center gap-1 cursor-pointer transition-colors bg-primary/5 hover:bg-primary/10 px-2 py-1 rounded"
+                                                                                                    >
+                                                                                                        <Pencil className="w-2.5 h-2.5" />
+                                                                                                        Editar / Cargar fotos
+                                                                                                    </button>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        );
+                                                                                    } else {
+                                                                                        // Pending session
+                                                                                        const isNext = i === sessionEntries.length;
+                                                                                        
+                                                                                        sessionCards.push(
+                                                                                            <div key={i} className={cn(
+                                                                                                'border rounded-lg p-3.5 flex flex-col justify-between transition-colors shadow-sm',
+                                                                                                isNext 
+                                                                                                    ? 'border-primary/40 bg-primary/[0.02] hover:bg-primary/[0.04]' 
+                                                                                                    : 'border-dashed border-border/60 bg-muted/5 hover:bg-muted/10 opacity-75'
+                                                                                            )}>
+                                                                                                <div>
+                                                                                                    <div className="flex items-center justify-between mb-1.5">
+                                                                                                        <span className="text-xs font-bold text-foreground/80">Sesión {i + 1}</span>
+                                                                                                        {isNext ? (
+                                                                                                            <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">Siguiente</span>
+                                                                                                        ) : (
+                                                                                                            <span className="text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border/30">Pendiente</span>
+                                                                                                        )}
+                                                                                                    </div>
+                                                                                                    
+                                                                                                    <p className="text-[11px] text-muted-foreground mt-1 mb-3">
+                                                                                                        {isNext 
+                                                                                                            ? 'Esta sesión está disponible para ser registrada ahora.' 
+                                                                                                            : 'Próxima sesión en el paquete de tratamiento.'
+                                                                                                        }
+                                                                                                    </p>
+                                                                                                </div>
+
+                                                                                                <div className="pt-2">
+                                                                                                    {isNext ? (
+                                                                                                        <button
+                                                                                                            type="button"
+                                                                                                            onClick={() => startConsumeSessionFlow(cuponeraInfo)}
+                                                                                                            className="w-full text-center text-[10px] font-bold text-primary-foreground bg-primary hover:bg-primary/95 px-2.5 py-1.5 rounded-md shadow-sm transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                                                                                        >
+                                                                                                            <Plus className="w-3 h-3" />
+                                                                                                            Registrar Sesión {i + 1}
+                                                                                                        </button>
+                                                                                                    ) : (
+                                                                                                        <button
+                                                                                                            type="button"
+                                                                                                            disabled
+                                                                                                            className="w-full text-center text-[10px] font-medium text-muted-foreground bg-muted/40 border border-border/40 px-2.5 py-1.5 rounded-md cursor-not-allowed flex items-center justify-center gap-1"
+                                                                                                        >
+                                                                                                            <Lock className="w-2.5 h-2.5" />
+                                                                                                            Registrar Sesión {i + 1}
+                                                                                                        </button>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        );
+                                                                                    }
+                                                                                }
+                                                                                return sessionCards;
+                                                                            })()}
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             )}
