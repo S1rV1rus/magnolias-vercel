@@ -995,6 +995,27 @@ export function PatientDetails() {
                                                                         style={{ width: `${Math.min(100, pct * 100)}%` }}
                                                                     />
                                                                 </div>
+
+                                                                {!isMonthly && (
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            startConsumeSessionFlow(item);
+                                                                        }}
+                                                                        disabled={item.used_sessions >= item.total_sessions}
+                                                                        className={cn(
+                                                                            "mt-3.5 w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all border cursor-pointer disabled:cursor-not-allowed",
+                                                                            item.used_sessions >= item.total_sessions
+                                                                                ? "bg-transparent text-muted-foreground border-border/50"
+                                                                                : "bg-primary hover:bg-primary/90 text-primary-foreground border-transparent shadow-sm"
+                                                                        )}
+                                                                    >
+                                                                        {item.used_sessions >= item.total_sessions
+                                                                            ? 'Sin sesiones disponibles'
+                                                                            : <><CheckCircle2 className="w-3.5 h-3.5" /> Consumir 1 Sesión</>
+                                                                        }
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                         )
                                                     })()}
@@ -1231,6 +1252,8 @@ export function PatientDetails() {
                                     <Ticket className="w-8 h-8 text-muted-foreground/50 mx-auto mb-3" />
                                     <p className="text-sm text-muted-foreground">El cliente no posee cuponeras activas.</p>
                                 </div>
+                            ) : (
+                                cuponeras.map(cup => {
                                     const service = Array.isArray(cup.services) ? cup.services[0] : cup.services
                                     const isMonthly = cup.cuponera_type === 'months'
                                     const available = isMonthly ? (cup.total_months || 0) - (cup.used_months || 0) : cup.total_sessions - cup.used_sessions
@@ -1689,6 +1712,45 @@ export function PatientDetails() {
                                 </p>
 
                                 <form onSubmit={handleCreateHistory} className="space-y-4">
+                                     {/* ¿Asociar a un Tratamiento Activo? */}
+                                     {!selectedCuponeraForConsuming && cuponeras.filter(c => c.cuponera_type !== 'months' && c.total_sessions - c.used_sessions > 0).length > 0 && (
+                                         <div className="space-y-2">
+                                             <label className="text-sm font-medium text-foreground block">
+                                                 ¿Asociar y Consumir Sesión de Tratamiento Activo?
+                                             </label>
+                                             <select
+                                                 className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none cursor-pointer"
+                                                 value={selectedCuponeraForConsuming ? selectedCuponeraForConsuming.id : ''}
+                                                 onChange={e => {
+                                                     const val = e.target.value;
+                                                     if (val === '') {
+                                                         setSelectedCuponeraForConsuming(null);
+                                                     } else {
+                                                         const activeSessionCuponeras = cuponeras.filter(c => c.cuponera_type !== 'months' && c.total_sessions - c.used_sessions > 0);
+                                                         const selected = activeSessionCuponeras.find(c => c.id === val);
+                                                         if (selected) {
+                                                             setSelectedCuponeraForConsuming(selected);
+                                                             const sName = (Array.isArray(selected.services) ? selected.services[0] : selected.services)?.name;
+                                                             setHistoryForm(prev => ({
+                                                                 ...prev,
+                                                                 service_type: sName || 'Tratamiento'
+                                                             }));
+                                                         }
+                                                     }
+                                                 }}
+                                             >
+                                                 <option value="">-- No asociar (Visita General sin consumir sesión) --</option>
+                                                 {cuponeras.filter(c => c.cuponera_type !== 'months' && c.total_sessions - c.used_sessions > 0).map(c => {
+                                                     const sName = (Array.isArray(c.services) ? c.services[0] : c.services)?.name || 'Tratamiento';
+                                                     return (
+                                                         <option key={c.id} value={c.id}>
+                                                             {sName} (Disponible: {c.total_sessions - c.used_sessions} de {c.total_sessions} ses.)
+                                                         </option>
+                                                     )
+                                                 })}
+                                             </select>
+                                         </div>
+                                     )}
                                 <div className="grid grid-cols-3 gap-4">
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium text-foreground">Fecha de la Visita</label>
