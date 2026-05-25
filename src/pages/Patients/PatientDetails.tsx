@@ -85,6 +85,8 @@ export function PatientDetails() {
     const [pendingPreviews, setPendingPreviews] = useState<string[]>([])              // object URLs para preview
     const [uploadingPhotos, setUploadingPhotos] = useState(false)
     const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)              // foto ampliada
+    const [selectedCuponeraForConsuming, setSelectedCuponeraForConsuming] = useState<any | null>(null)
+    const [editingHistoryPhotos, setEditingHistoryPhotos] = useState<any[]>([])      // fotos de la entrada en edición
 
     // Slideshow de progreso
     const [slideshowCuponeraId, setSlideshowCuponeraId] = useState<string | null>(null)
@@ -294,6 +296,56 @@ export function PatientDetails() {
         }
     }
 
+    const startConsumeSessionFlow = (cuponera: any) => {
+        setSelectedCuponeraForConsuming(cuponera);
+        const serviceName = Array.isArray(cuponera.services)
+            ? cuponera.services[0]?.name
+            : cuponera.services?.name;
+        setHistoryForm({
+            service_type: serviceName || 'Tratamiento',
+            professional_id: '',
+            notes: '',
+            data: {},
+            date: new Date().toISOString().split('T')[0]
+        });
+        setIsHistoryModalOpen(true);
+    }
+
+    const fetchEditingHistoryPhotos = async (entryId: string) => {
+        const { data } = await supabase
+            .from('clinical_history_photos')
+            .select('*')
+            .eq('clinical_history_id', entryId)
+            .order('photo_order', { ascending: true })
+        if (data) {
+            setEditingHistoryPhotos(data)
+        }
+    }
+
+    const handleDeletePhoto = async (photo: any) => {
+        if (!confirm('¿Desea eliminar esta foto permanentemente?')) return
+        const { error } = await supabase.from('clinical_history_photos').delete().eq('id', photo.id)
+        if (!error) {
+            await supabase.storage.from('patient-photos').remove([photo.storage_path])
+            setEditingHistoryPhotos(prev => prev.filter(p => p.id !== photo.id))
+            void loadData()
+        }
+    }
+
+    const openEditHistoryEntryDirectly = (entry: any) => {
+        setSelectedHistoryEntry(entry);
+        const p = Array.isArray(entry.professionals) ? entry.professionals[0] : entry.professionals;
+        setEditHistoryForm({
+            service_type: entry.service_type || '',
+            professional_id: p ? entry.professional_id || '' : '',
+            notes: entry.notes || '',
+            date: new Date(entry.created_at).toISOString().split('T')[0]
+        });
+        setIsEditingHistory(true);
+        setConfirmDeleteHistory(false);
+        void fetchEditingHistoryPhotos(entry.id);
+    }
+
     const handleUpdatePatient = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!id) return
@@ -327,13 +379,23 @@ export function PatientDetails() {
             createdAt = new Date(`${historyForm.date}T12:00:00Z`).toISOString()
         }
 
+        // If we are consuming a session, prefix the notes with the cuponera tag
+        let finalNotes = historyForm.notes;
+        if (selectedCuponeraForConsuming) {
+            const serviceName = Array.isArray(selectedCuponeraForConsuming.services)
+                ? selectedCuponeraForConsuming.services[0]?.name
+                : selectedCuponeraForConsuming.services?.name;
+            const fallbackNotes = `Se consumió manualmente la sesión ${selectedCuponeraForConsuming.used_sessions + 1} de la cuponera asignada de ${serviceName || 'Tratamiento'}.`;
+            finalNotes = `[CUPONERA:${selectedCuponeraForConsuming.id}] ${historyForm.notes.trim() || fallbackNotes}`;
+        }
+
         const { data: newEntry, error } = await supabase
             .from('clinical_history')
             .insert([{
                 patient_id: id,
                 professional_id: historyForm.professional_id || null,
                 service_type: historyForm.service_type,
-                notes: historyForm.notes,
+                notes: finalNotes,
                 data: historyForm.data,
                 created_at: createdAt
             }])
@@ -362,10 +424,20 @@ export function PatientDetails() {
                 }
                 setUploadingPhotos(false)
             }
+
+            // If we are consuming a session, increment used_sessions!
+            if (selectedCuponeraForConsuming) {
+                await supabase
+                    .from('cuponeras')
+                    .update({ used_sessions: selectedCuponeraForConsuming.used_sessions + 1 })
+                    .eq('id', selectedCuponeraForConsuming.id);
+            }
+
             setIsHistoryModalOpen(false)
             setPendingPhotos([])
             setPendingPreviews([])
             setHistoryForm({ service_type: '', professional_id: '', notes: '', data: {}, date: new Date().toISOString().split('T')[0] })
+            setSelectedCuponeraForConsuming(null)
             loadData()
         } else {
             console.error('Error creating history entry:', error)
@@ -391,30 +463,60 @@ export function PatientDetails() {
         e.preventDefault()
         if (!selectedHistoryEntry) return
 
-        let createdAt = selectedHistoryEntry.created_at
-        const todayStr = new Date().toISOString().split('T')[0]
-        if (editHistoryForm.date && editHistoryForm.date !== todayStr) {
-            const existing = new Date(selectedHistoryEntry.created_at)
-            const time = `${String(existing.getUTCHours()).padStart(2,'0')}:${String(existing.getUTCMinutes()).padStart(2,'0')}:00`
-            createdAt = new Date(`${editHistoryForm.date}T${time}Z`).toISOString()
-        }
+        setUploadingPhotos(true)
+        try {
+            let createdAt = selectedHistoryEntry.created_at
+            const todayStr = new Date().toISOString().split('T')[0]
+            if (editHistoryForm.date && editHistoryForm.date !== todayStr) {
+                const existing = new Date(selectedHistoryEntry.created_at)
+                const time = `${String(existing.getUTCHours()).padStart(2,'0')}:${String(existing.getUTCMinutes()).padStart(2,'0')}:00`
+                createdAt = new Date(`${editHistoryForm.date}T${time}Z`).toISOString()
+            }
 
-        const { error } = await supabase
-            .from('clinical_history')
-            .update({
-                service_type: editHistoryForm.service_type,
-                professional_id: editHistoryForm.professional_id || null,
-                notes: editHistoryForm.notes,
-                created_at: createdAt
-            })
-            .eq('id', selectedHistoryEntry.id)
+            const { error } = await supabase
+                .from('clinical_history')
+                .update({
+                    service_type: editHistoryForm.service_type,
+                    professional_id: editHistoryForm.professional_id || null,
+                    notes: editHistoryForm.notes,
+                    created_at: createdAt
+                })
+                .eq('id', selectedHistoryEntry.id)
 
-        if (!error) {
+            if (error) throw error
+
+            // Upload any new pending photos
+            if (pendingPhotos.length > 0) {
+                const currentCount = editingHistoryPhotos.length;
+                for (let i = 0; i < pendingPhotos.length; i++) {
+                    const file = pendingPhotos[i]
+                    const ext = file.name.split('.').pop() || 'jpg'
+                    const path = `${id}/${selectedHistoryEntry.id}/${crypto.randomUUID()}.${ext}`
+                    const { error: uploadError } = await supabase.storage
+                        .from('patient-photos')
+                        .upload(path, file, { upsert: false })
+                    if (!uploadError) {
+                        await supabase.from('clinical_history_photos').insert({
+                            clinical_history_id: selectedHistoryEntry.id,
+                            patient_id: id,
+                            storage_path: path,
+                            photo_order: currentCount + i + 1
+                        })
+                    }
+                }
+            }
+
             setSelectedHistoryEntry(null)
             setIsEditingHistory(false)
+            setPendingPhotos([])
+            setPendingPreviews([])
+            setEditingHistoryPhotos([])
             loadData()
-        } else {
+        } catch (error) {
             console.error('Error updating history entry:', error)
+            alert('Error al guardar los cambios.')
+        } finally {
+            setUploadingPhotos(false)
         }
     }
 
@@ -618,7 +720,10 @@ export function PatientDetails() {
                                 <h3 className="text-lg font-semibold text-foreground">Evolución e Historia</h3>
                             </div>
                             <button
-                                onClick={() => setIsHistoryModalOpen(true)}
+                                onClick={() => {
+                                    setSelectedCuponeraForConsuming(null);
+                                    setIsHistoryModalOpen(true);
+                                }}
                                 className="text-sm bg-primary hover:bg-primary/90 text-primary-foreground px-3 py-1.5 rounded-md font-medium inline-flex items-center gap-1 cursor-pointer transition-colors shadow-sm"
                             >
                                 <Plus className="w-4 h-4" /> Agregar Entrada
@@ -785,14 +890,16 @@ export function PatientDetails() {
                                                 date: new Date(a.start_time),
                                                 professional: Array.isArray(a.professionals) ? a.professionals[0] : a.professionals,
                                                 note: a.notes,
-                                                type: 'Turno'
+                                                type: 'Turno',
+                                                rawEntry: null
                                             })),
                                             ...historyEntries.filter(h => h.notes && h.notes.includes(`[CUPONERA:${item.id}]`)).map(h => ({
                                                 id: h.id,
                                                 date: new Date(h.created_at),
                                                 professional: Array.isArray(h.professionals) ? h.professionals[0] : h.professionals,
                                                 note: h.notes?.replace(`[CUPONERA:${item.id}] `, ''),
-                                                type: 'Canje Manual'
+                                                type: 'Canje Manual',
+                                                rawEntry: h
                                             }))
                                         ].sort((a, b) => a.date.getTime() - b.date.getTime());
 
@@ -906,7 +1013,21 @@ export function PatientDetails() {
                                                                     return (
                                                                         <div key={r.id} className="text-xs space-y-1 pb-2 border-b border-border/50 last:border-0 last:pb-0">
                                                                             <div className="flex justify-between items-center font-medium text-foreground">
-                                                                                <span>Sesión {sessionNumber} - {r.date.toLocaleDateString('es-AR') + ' ' + r.date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                                                                <span>
+                                                                                    Sesión {sessionNumber} - {r.date.toLocaleDateString('es-AR') + ' ' + r.date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                                                                                    {r.rawEntry && (
+                                                                                        <button
+                                                                                            onClick={(e) => {
+                                                                                                e.stopPropagation();
+                                                                                                openEditHistoryEntryDirectly(r.rawEntry);
+                                                                                            }}
+                                                                                            className="text-primary hover:underline hover:text-primary/80 transition-colors ml-2 font-bold cursor-pointer inline-flex items-center gap-0.5"
+                                                                                            title="Editar notas o fotos de esta sesión"
+                                                                                        >
+                                                                                            <Pencil className="w-2.5 h-2.5" /> Editar
+                                                                                        </button>
+                                                                                    )}
+                                                                                </span>
                                                                                 <div className="flex items-center gap-2">
                                                                                     <span className="text-[10px] px-1.5 py-0.5 rounded-sm bg-muted/50 border border-border/50 text-muted-foreground">{r.type}</span>
                                                                                     <span className="text-muted-foreground">{r.professional ? `${r.professional.first_name} ${r.professional.last_name}` : 'Sin profesional'}</span>
@@ -914,6 +1035,19 @@ export function PatientDetails() {
                                                                             </div>
                                                                             {r.note && (
                                                                                 <p className="text-muted-foreground whitespace-pre-wrap mt-1 pb-1">{r.note}</p>
+                                                                            )}
+                                                                            {historyPhotos[r.id]?.length > 0 && (
+                                                                                <div className="flex gap-1.5 mt-1.5 pb-1">
+                                                                                    {historyPhotos[r.id].map((url, pi) => (
+                                                                                        <img
+                                                                                            key={pi}
+                                                                                            src={url}
+                                                                                            alt={`Foto ${pi + 1}`}
+                                                                                            onClick={(e) => { e.stopPropagation(); setLightboxUrl(url); }}
+                                                                                            className="w-10 h-10 object-cover rounded border border-border hover:opacity-90 cursor-zoom-in transition-opacity"
+                                                                                        />
+                                                                                    ))}
+                                                                                </div>
                                                                             )}
                                                                         </div>
                                                                     )
@@ -1097,8 +1231,6 @@ export function PatientDetails() {
                                     <Ticket className="w-8 h-8 text-muted-foreground/50 mx-auto mb-3" />
                                     <p className="text-sm text-muted-foreground">El cliente no posee cuponeras activas.</p>
                                 </div>
-                            ) : (
-                                cuponeras.map(cup => {
                                     const service = Array.isArray(cup.services) ? cup.services[0] : cup.services
                                     const isMonthly = cup.cuponera_type === 'months'
                                     const available = isMonthly ? (cup.total_months || 0) - (cup.used_months || 0) : cup.total_sessions - cup.used_sessions
@@ -1110,14 +1242,16 @@ export function PatientDetails() {
                                             date: new Date(a.start_time),
                                             professional: Array.isArray(a.professionals) ? a.professionals[0] : a.professionals,
                                             note: a.notes,
-                                            type: 'Turno'
+                                            type: 'Turno',
+                                            rawEntry: null
                                         })),
                                         ...historyEntries.filter(h => h.notes && h.notes.includes(`[CUPONERA:${cup.id}]`)).map(h => ({
                                             id: h.id,
                                             date: new Date(h.created_at),
                                             professional: Array.isArray(h.professionals) ? h.professionals[0] : h.professionals,
                                             note: h.notes?.replace(`[CUPONERA:${cup.id}] `, ''),
-                                            type: 'Canje Manual'
+                                            type: 'Canje Manual',
+                                            rawEntry: h
                                         }))
                                     ].sort((a, b) => a.date.getTime() - b.date.getTime());
 
@@ -1243,7 +1377,21 @@ export function PatientDetails() {
                                                                 return (
                                                                 <div key={r.id} className="bg-muted/50 p-2.5 rounded-md border border-border/50">
                                                                     <div className="flex justify-between items-center mb-1">
-                                                                        <span className="text-[10px] font-medium text-foreground">Sesión {sessionNumber} - {r.date.toLocaleDateString('es-AR') + ' ' + r.date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                                                        <span className="text-[10px] font-medium text-foreground">
+                                                                            Sesión {sessionNumber} - {r.date.toLocaleDateString('es-AR') + ' ' + r.date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                                                                            {r.rawEntry && (
+                                                                                <button
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        openEditHistoryEntryDirectly(r.rawEntry);
+                                                                                    }}
+                                                                                    className="text-primary hover:underline hover:text-primary/80 transition-colors ml-2 font-bold cursor-pointer inline-flex items-center gap-0.5"
+                                                                                    title="Editar notas o fotos de esta sesión"
+                                                                                >
+                                                                                    <Pencil className="w-2.5 h-2.5" /> Editar
+                                                                                </button>
+                                                                            )}
+                                                                        </span>
                                                                         <div className="flex items-center gap-2">
                                                                             <span className="text-[9px] px-1 py-0.5 rounded-sm bg-background border border-border text-muted-foreground">{r.type}</span>
                                                                             {r.professional && (
@@ -1252,6 +1400,19 @@ export function PatientDetails() {
                                                                         </div>
                                                                     </div>
                                                                     {r.note && <p className="text-xs text-foreground line-clamp-2 mt-1 whitespace-pre-wrap">{r.note}</p>}
+                                                                    {historyPhotos[r.id]?.length > 0 && (
+                                                                        <div className="flex gap-1.5 mt-1.5 pb-1">
+                                                                            {historyPhotos[r.id].map((url, pi) => (
+                                                                                <img
+                                                                                    key={pi}
+                                                                                    src={url}
+                                                                                    alt={`Foto ${pi + 1}`}
+                                                                                    onClick={(e) => { e.stopPropagation(); setLightboxUrl(url); }}
+                                                                                    className="w-10 h-10 object-cover rounded border border-border hover:opacity-90 cursor-zoom-in transition-opacity"
+                                                                                />
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                                 )
                                                             })}
@@ -1263,7 +1424,7 @@ export function PatientDetails() {
                                             {/* Only show "Consumir Sesión" button for session-type cuponeras */}
                                             {!isMonthly && (
                                                 <button
-                                                    onClick={() => handleUseSession(cup)}
+                                                    onClick={() => startConsumeSessionFlow(cup)}
                                                     disabled={isExhausted}
                                                     className={cn(
                                                         "mt-4 w-full flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-colors border cursor-pointer disabled:cursor-not-allowed",
@@ -1514,8 +1675,18 @@ export function PatientDetails() {
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
                         <div className="w-full max-w-lg bg-card border border-border rounded-xl shadow-lg animate-in zoom-in-95 duration-200 flex flex-col max-h-[100dvh] md:max-h-[90vh]">
                             <div className="p-6 overflow-y-auto">
-                                <h3 className="text-xl font-bold text-foreground mb-1">Cargar Evolución Clínica</h3>
-                                <p className="text-sm text-muted-foreground mb-5">Añade una nueva entrada al registro del paciente.</p>
+                                <h3 className="text-xl font-bold text-foreground mb-1">
+                                    {selectedCuponeraForConsuming
+                                        ? `Registrar Sesión: ${historyForm.service_type}`
+                                        : 'Cargar Evolución Clínica'
+                                    }
+                                </h3>
+                                <p className="text-sm text-muted-foreground mb-5">
+                                    {selectedCuponeraForConsuming
+                                        ? `Completá los datos y subí fotos para la Sesión ${selectedCuponeraForConsuming.used_sessions + 1} de este tratamiento.`
+                                        : 'Añade una nueva entrada al registro del paciente.'
+                                    }
+                                </p>
 
                                 <form onSubmit={handleCreateHistory} className="space-y-4">
                                 <div className="grid grid-cols-3 gap-4">
@@ -1641,7 +1812,7 @@ export function PatientDetails() {
                                 </div>
 
                                 <div className="pt-4 flex justify-end gap-3">
-                                    <button type="button" onClick={() => { setIsHistoryModalOpen(false); setPendingPhotos([]); setPendingPreviews([]) }} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
+                                    <button type="button" onClick={() => { setIsHistoryModalOpen(false); setPendingPhotos([]); setPendingPreviews([]); setSelectedCuponeraForConsuming(null); }} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
                                         Cancelar
                                     </button>
                                     <button type="submit" disabled={uploadingPhotos} className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background cursor-pointer transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2">
@@ -1760,19 +1931,110 @@ export function PatientDetails() {
                                         />
                                     </div>
 
+                                    {/* Fotos de la sesión (Edición) */}
+                                    <div className="space-y-3 pt-2">
+                                        {/* Fotos ya subidas */}
+                                        {editingHistoryPhotos.length > 0 && (
+                                            <div className="space-y-1.5">
+                                                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">Fotos Subidas</label>
+                                                <div className="flex gap-2 flex-wrap">
+                                                    {editingHistoryPhotos.map((photo, pidx) => {
+                                                        const { data: urlData } = supabase.storage.from('patient-photos').getPublicUrl(photo.storage_path);
+                                                        return (
+                                                            <div key={photo.id} className="relative group w-24 h-24">
+                                                                <img
+                                                                    src={urlData.publicUrl}
+                                                                    alt={`Foto ${pidx + 1}`}
+                                                                    className="w-24 h-24 object-cover rounded-lg border border-border"
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleDeletePhoto(photo)}
+                                                                    className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shadow"
+                                                                    title="Eliminar Foto"
+                                                                >
+                                                                    <X className="w-3 h-3" />
+                                                                </button>
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Nuevas fotos pendientes */}
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                                                    <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                                                    Agregar nuevas fotos
+                                                    <span className="text-muted-foreground font-normal">(máx. {3 - editingHistoryPhotos.length} más)</span>
+                                                </label>
+                                                <span className="text-xs text-muted-foreground">{pendingPhotos.length}/{3 - editingHistoryPhotos.length}</span>
+                                            </div>
+
+                                            {pendingPreviews.length > 0 && (
+                                                <div className="flex gap-2 flex-wrap">
+                                                    {pendingPreviews.map((url, idx) => (
+                                                        <div key={idx} className="relative group w-24 h-24">
+                                                            <img
+                                                                src={url}
+                                                                alt={`Nueva Foto ${idx + 1}`}
+                                                                className="w-24 h-24 object-cover rounded-lg border border-border"
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => removePendingPhoto(idx)}
+                                                                className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shadow"
+                                                            >
+                                                                <X className="w-3 h-3" />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            {editingHistoryPhotos.length + pendingPhotos.length < 3 && (
+                                                <label className="flex items-center gap-2 w-full border border-dashed border-border/70 hover:border-primary/50 rounded-lg p-3 cursor-pointer transition-colors bg-muted/30 hover:bg-primary/5">
+                                                    <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                                                    <span className="text-sm text-muted-foreground">
+                                                        {pendingPhotos.length === 0 ? 'Agregar foto(s)...' : 'Agregar otra foto...'}
+                                                    </span>
+                                                    <input
+                                                        type="file"
+                                                        accept="image/jpeg,image/png,image/webp,image/heic"
+                                                        multiple
+                                                        className="hidden"
+                                                        onChange={(e) => {
+                                                            const files = Array.from(e.target.files || [])
+                                                            const remaining = 3 - editingHistoryPhotos.length - pendingPhotos.length
+                                                            const toAdd = files.slice(0, remaining)
+                                                            setPendingPhotos(prev => [...prev, ...toAdd])
+                                                            setPendingPreviews(prev => [...prev, ...toAdd.map(f => URL.createObjectURL(f))])
+                                                            e.target.value = ''
+                                                        }}
+                                                    />
+                                                </label>
+                                            )}
+                                        </div>
+                                    </div>
+
                                     <div className="pt-2 flex justify-end gap-3">
                                         <button
                                             type="button"
-                                            onClick={() => { setIsEditingHistory(false); setConfirmDeleteHistory(false) }}
+                                            onClick={() => { setIsEditingHistory(false); setConfirmDeleteHistory(false); setPendingPhotos([]); setPendingPreviews([]); setEditingHistoryPhotos([]); }}
                                             className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
                                         >
                                             Cancelar
                                         </button>
                                         <button
                                             type="submit"
-                                            className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background cursor-pointer transition-colors"
+                                            disabled={uploadingPhotos}
+                                            className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background cursor-pointer transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
                                         >
-                                            Guardar Cambios
+                                            {uploadingPhotos ? (
+                                                <><span className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />Subiendo fotos...</>
+                                            ) : 'Guardar Cambios'}
                                         </button>
                                     </div>
                                 </form>
