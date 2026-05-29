@@ -164,6 +164,24 @@ function AppointmentEvent({ event }: { event: any }) {
             return { status: 'pendiente' as const, label: '' };
         }
 
+        // Si la nota indica regalo, cortesía o voucher, se asume pagado/sin cargo
+        const notes = (event.raw.app?.notes || '').toLowerCase();
+        const hasSpecialPayment = 
+            notes.includes('regalo') || 
+            notes.includes('voucher') || 
+            notes.includes('bigbox') || 
+            notes.includes('big box') || 
+            notes.includes('cortesia') || 
+            notes.includes('cortesía') || 
+            notes.includes('beca') || 
+            notes.includes('gratis') || 
+            notes.includes('sorteo') ||
+            notes.includes('canje');
+
+        if (hasSpecialPayment) {
+            return { status: 'pago' as const, label: 'Pagado' };
+        }
+
         const isUsingCuponera = !!event.raw.app?.cuponera_id;
         const cuponera = event.raw.cuponera;
 
@@ -180,7 +198,7 @@ function AppointmentEvent({ event }: { event: any }) {
             }
             return { status: 'pago' as const, label: 'Pagado' };
         }
-    }, [event.raw.app?.cuponera_id, event.raw.cuponera, event.raw.app?.is_unpaid, event.status])
+    }, [event.raw.app?.cuponera_id, event.raw.cuponera, event.raw.app?.is_unpaid, event.status, event.raw.app?.notes])
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
         if (isTouch) return
