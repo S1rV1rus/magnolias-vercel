@@ -61,6 +61,7 @@ interface TooltipData {
     professional: string
     status: string
     time: string
+    notes: string
     x: number
     y: number
 }
@@ -109,6 +110,12 @@ function AppointmentTooltip({ data }: { data: TooltipData }) {
                     <span className="appt-tooltip-icon">👤</span>
                     <span>{data.professional}</span>
                 </div>
+                {data.notes && (
+                    <div className="appt-tooltip-row appt-tooltip-notes">
+                        <span className="appt-tooltip-icon">📝</span>
+                        <span>{data.notes}</span>
+                    </div>
+                )}
             </div>
         </div>,
         document.body
@@ -140,10 +147,11 @@ function AppointmentEvent({ event }: { event: any }) {
                 : '—',
             status: event.status,
             time: format(event.start, 'HH:mm') + ' – ' + format(event.end, 'HH:mm'),
+            notes: event.raw.app?.notes || '',
             x: e.clientX,
             y: e.clientY,
         })
-    }, [isTouch, names, service, professional, event.status, event.start, event.end])
+    }, [isTouch, names, service, professional, event.status, event.start, event.end, event.raw.app?.notes])
 
     const handleMouseLeave = useCallback(() => {
         if (isTouch) return
@@ -196,6 +204,7 @@ function AppointmentEvent({ event }: { event: any }) {
                         : '—',
                     status: event.status,
                     time: format(event.start, 'HH:mm') + ' – ' + format(event.end, 'HH:mm'),
+                    notes: event.raw.app?.notes || '',
                     x: touch.clientX,
                     y: touch.clientY,
                 })
@@ -205,7 +214,7 @@ function AppointmentEvent({ event }: { event: any }) {
                 hideTimer.current = setTimeout(() => setTooltip(null), 2500)
             }
         }
-    }, [names, service, professional, event.status, event.start, event.end])
+    }, [names, service, professional, event.status, event.start, event.end, event.raw.app?.notes])
 
     const handleTouchMove = useCallback(() => {
         // Si el usuario mueve el dedo (está haciendo scroll), también se cancela la edición
