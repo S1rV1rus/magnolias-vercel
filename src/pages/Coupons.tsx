@@ -126,7 +126,8 @@ export function Coupons() {
         total_sessions: 8,
         used_sessions: 0,
         invoice_number: '',
-        amount_paid: ''
+        amount_paid: '',
+        is_paid: true
     })
 
 
@@ -182,7 +183,8 @@ export function Coupons() {
             used_sessions: formData.used_sessions,
             is_active: formData.used_sessions < formData.total_sessions,
             invoice_number: formData.invoice_number || null,
-            amount_paid: formData.amount_paid ? parseFloat(formData.amount_paid) : null
+            amount_paid: formData.amount_paid ? parseFloat(formData.amount_paid) : null,
+            is_paid: formData.is_paid
         }
 
         let error
@@ -202,7 +204,7 @@ export function Coupons() {
         if (!error) {
             setIsModalOpen(false)
             setEditingId(null)
-            setFormData({ patient_id: '', service_id: '', total_sessions: 8, used_sessions: 0, invoice_number: '', amount_paid: '' })
+            setFormData({ patient_id: '', service_id: '', total_sessions: 8, used_sessions: 0, invoice_number: '', amount_paid: '', is_paid: true })
             fetchData()
         } else {
             console.error('Error saving cuponera:', error)
@@ -218,7 +220,8 @@ export function Coupons() {
             total_sessions: c.total_sessions,
             used_sessions: c.used_sessions,
             invoice_number: c.invoice_number || '',
-            amount_paid: c.amount_paid?.toString() || ''
+            amount_paid: c.amount_paid?.toString() || '',
+            is_paid: c.is_paid !== false
         })
         setIsModalOpen(true)
     }
@@ -426,7 +429,7 @@ export function Coupons() {
                                 <Ticket className="w-5 h-5 text-primary" />
                                 {editingId ? 'Editar Cuponera' : 'Vender Nueva Cuponera'}
                             </h2>
-                            <button onClick={() => { setIsModalOpen(false); setEditingId(null); setFormData({ patient_id: '', service_id: '', total_sessions: 8, used_sessions: 0, invoice_number: '', amount_paid: '' }) }} className="text-muted-foreground hover:text-foreground cursor-pointer p-1">
+                            <button onClick={() => { setIsModalOpen(false); setEditingId(null); setFormData({ patient_id: '', service_id: '', total_sessions: 8, used_sessions: 0, invoice_number: '', amount_paid: '', is_paid: true }) }} className="text-muted-foreground hover:text-foreground cursor-pointer p-1">
                                 &times;
                             </button>
                         </div>
@@ -526,8 +529,21 @@ export function Coupons() {
                                 </div>
                             </div>
 
+                            <div className="flex items-center gap-2 p-3 bg-muted/50 border border-border rounded-md mt-4">
+                                <input
+                                    type="checkbox"
+                                    id="is_paid"
+                                    checked={formData.is_paid}
+                                    onChange={e => setFormData({ ...formData, is_paid: e.target.checked })}
+                                    className="w-4 h-4 rounded border-input text-primary focus:ring-primary/20 accent-primary"
+                                />
+                                <label htmlFor="is_paid" className="text-sm font-medium text-foreground cursor-pointer select-none">
+                                    Cuponera Paga (Monto recibido por completo)
+                                </label>
+                            </div>
+
                             <div className="pt-4 flex justify-end gap-3 mt-4">
-                                <button type="button" onClick={() => { setIsModalOpen(false); setEditingId(null); setFormData({ patient_id: '', service_id: '', total_sessions: 8, used_sessions: 0, invoice_number: '', amount_paid: '' }) }} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer">
+                                <button type="button" onClick={() => { setIsModalOpen(false); setEditingId(null); setFormData({ patient_id: '', service_id: '', total_sessions: 8, used_sessions: 0, invoice_number: '', amount_paid: '', is_paid: true }) }} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer">
                                     Cancelar
                                 </button>
                                 <button type="submit" className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2 flex items-center gap-2 cursor-pointer">

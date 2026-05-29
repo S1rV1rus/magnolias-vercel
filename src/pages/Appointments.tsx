@@ -55,6 +55,12 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 // ─── Appointment Tooltip Portal ────────────────────────────────────────────────
+const PAYMENT_COLOR: Record<string, string> = {
+    pago: '#16a34a',       // green-600
+    impago: '#ef4444',     // red-500
+    pendiente: '#d97706',  // amber-600
+}
+
 interface TooltipData {
     names: string
     service: string
@@ -62,6 +68,8 @@ interface TooltipData {
     status: string
     time: string
     notes: string
+    paymentStatus: 'pago' | 'impago' | 'pendiente'
+    paymentLabel: string
     x: number
     y: number
 }
@@ -69,6 +77,7 @@ interface TooltipData {
 function AppointmentTooltip({ data }: { data: TooltipData }) {
     const statusColor = STATUS_COLOR[data.status] ?? '#94a3b8'
     const statusLabel = STATUS_LABEL[data.status] ?? data.status
+    const paymentColor = PAYMENT_COLOR[data.paymentStatus] ?? '#94a3b8'
 
     // Smart positioning: keep inside viewport
     const OFFSET = 14
@@ -83,16 +92,30 @@ function AppointmentTooltip({ data }: { data: TooltipData }) {
         >
             <div className="appt-tooltip-header">
                 <span className="appt-tooltip-names">{data.names}</span>
-                <span
-                    className="appt-tooltip-badge"
-                    style={{ backgroundColor: `${statusColor}22`, color: statusColor, borderColor: `${statusColor}55` }}
-                >
+                <div className="flex flex-wrap gap-1.5 items-center mt-1">
                     <span
-                        className="appt-tooltip-dot"
-                        style={{ backgroundColor: statusColor }}
-                    />
-                    {statusLabel}
-                </span>
+                        className="appt-tooltip-badge"
+                        style={{ backgroundColor: `${statusColor}22`, color: statusColor, borderColor: `${statusColor}55` }}
+                    >
+                        <span
+                            className="appt-tooltip-dot"
+                            style={{ backgroundColor: statusColor }}
+                        />
+                        {statusLabel}
+                    </span>
+                    {data.paymentLabel && (
+                        <span
+                            className="appt-tooltip-badge"
+                            style={{ backgroundColor: `${paymentColor}22`, color: paymentColor, borderColor: `${paymentColor}55` }}
+                        >
+                            <span
+                                className="appt-tooltip-dot"
+                                style={{ backgroundColor: paymentColor }}
+                            />
+                            {data.paymentLabel}
+                        </span>
+                    )}
+                </div>
             </div>
 
             <div className="appt-tooltip-rows">
@@ -136,9 +159,29 @@ function AppointmentEvent({ event }: { event: any }) {
 
     const getStatusColor = (status: string) => STATUS_COLOR[status] ?? '#94a3b8'
 
+    const getPaymentStatusInfo = useCallback(() => {
+        const isUsingCuponera = !!event.raw.app?.cuponera_id;
+        const cuponera = event.raw.cuponera;
+
+        if (isUsingCuponera) {
+            if (cuponera && cuponera.is_paid === false) {
+                return { status: 'impago' as const, label: 'Falta Pagar (Cup.)' };
+            }
+            return { status: 'pago' as const, label: 'Pagado (Cup.)' };
+        } else {
+            if (event.raw.app?.is_unpaid) {
+                return { status: 'impago' as const, label: 'Falta Pagar' };
+            } else if (event.status === 'pendiente') {
+                return { status: 'pendiente' as const, label: 'A Cobrar' };
+            }
+            return { status: 'pago' as const, label: 'Pagado' };
+        }
+    }, [event.raw.app?.cuponera_id, event.raw.cuponera, event.raw.app?.is_unpaid, event.status])
+
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
         if (isTouch) return
         if (hideTimer.current) clearTimeout(hideTimer.current)
+        const paymentInfo = getPaymentStatusInfo()
         setTooltip({
             names,
             service: service?.name || '—',
@@ -148,10 +191,12 @@ function AppointmentEvent({ event }: { event: any }) {
             status: event.status,
             time: format(event.start, 'HH:mm') + ' – ' + format(event.end, 'HH:mm'),
             notes: event.raw.app?.notes || '',
+            paymentStatus: paymentInfo.status,
+            paymentLabel: paymentInfo.label,
             x: e.clientX,
             y: e.clientY,
         })
-    }, [isTouch, names, service, professional, event.status, event.start, event.end, event.raw.app?.notes])
+    }, [isTouch, names, service, professional, event.status, event.start, event.end, event.raw.app?.notes, getPaymentStatusInfo])
 
     const handleMouseLeave = useCallback(() => {
         if (isTouch) return
@@ -196,6 +241,7 @@ function AppointmentEvent({ event }: { event: any }) {
             // Extraemos las coordenadas del toque para mostrar el tooltip
             const touch = e.changedTouches[0]
             if (touch) {
+                const paymentInfo = getPaymentStatusInfo()
                 setTooltip({
                     names,
                     service: service?.name || '—',
@@ -205,6 +251,8 @@ function AppointmentEvent({ event }: { event: any }) {
                     status: event.status,
                     time: format(event.start, 'HH:mm') + ' – ' + format(event.end, 'HH:mm'),
                     notes: event.raw.app?.notes || '',
+                    paymentStatus: paymentInfo.status,
+                    paymentLabel: paymentInfo.label,
                     x: touch.clientX,
                     y: touch.clientY,
                 })
@@ -214,7 +262,7 @@ function AppointmentEvent({ event }: { event: any }) {
                 hideTimer.current = setTimeout(() => setTooltip(null), 2500)
             }
         }
-    }, [names, service, professional, event.status, event.start, event.end, event.raw.app?.notes])
+    }, [names, service, professional, event.status, event.start, event.end, event.raw.app?.notes, getPaymentStatusInfo])
 
     const handleTouchMove = useCallback(() => {
         // Si el usuario mueve el dedo (está haciendo scroll), también se cancela la edición
@@ -475,7 +523,7 @@ export function Appointments() {
                 services(id, name, duration_minutes),
                 professionals(id, first_name, last_name, color),
                 rooms(id, name),
-                cuponeras(id, total_sessions, used_sessions)
+                cuponeras(id, total_sessions, used_sessions, is_paid)
             `)
 
         if (appts) {

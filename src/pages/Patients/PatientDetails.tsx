@@ -25,7 +25,8 @@ export function PatientDetails() {
         total_months: 3,
         start_date: new Date().toISOString().split('T')[0],
         invoice_number: '',
-        amount_paid: ''
+        amount_paid: '',
+        is_paid: true
     })
 
     // Modal Editar Paciente
@@ -62,7 +63,8 @@ export function PatientDetails() {
         start_date: '',
         invoice_number: '',
         amount_paid: '',
-        is_active: true
+        is_active: true,
+        is_paid: true
     })
     
     // Modal Saldar Deuda
@@ -208,12 +210,13 @@ export function PatientDetails() {
                 used_sessions: 0,
                 is_active: true,
                 invoice_number: cuponeraForm.invoice_number || null,
-                amount_paid: cuponeraForm.amount_paid ? parseFloat(cuponeraForm.amount_paid) : null
+                amount_paid: cuponeraForm.amount_paid ? parseFloat(cuponeraForm.amount_paid) : null,
+                is_paid: cuponeraForm.is_paid
             }]).select().single()
 
             if (!error) {
                 setIsCuponeraModalOpen(false)
-                setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: new Date().toISOString().split('T')[0], invoice_number: '', amount_paid: '' })
+                setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: new Date().toISOString().split('T')[0], invoice_number: '', amount_paid: '', is_paid: true })
                 loadData()
             } else {
                 console.error('Error creating monthly cuponera:', error)
@@ -231,7 +234,8 @@ export function PatientDetails() {
                 used_sessions: sessionsToUse,
                 is_active: true,
                 invoice_number: cuponeraForm.invoice_number || null,
-                amount_paid: cuponeraForm.amount_paid ? parseFloat(cuponeraForm.amount_paid) : null
+                amount_paid: cuponeraForm.amount_paid ? parseFloat(cuponeraForm.amount_paid) : null,
+                is_paid: cuponeraForm.is_paid
             }]).select().single()
 
             if (!error && newCuponera) {
@@ -243,7 +247,7 @@ export function PatientDetails() {
                 }
 
                 setIsCuponeraModalOpen(false)
-                setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: new Date().toISOString().split('T')[0], invoice_number: '', amount_paid: '' })
+                setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: new Date().toISOString().split('T')[0], invoice_number: '', amount_paid: '', is_paid: true })
                 loadData()
             } else {
                 console.error('Error creating cuponera:', error)
@@ -548,7 +552,8 @@ export function PatientDetails() {
         const updateData: any = {
             invoice_number: editCuponeraForm.invoice_number || null,
             amount_paid: editCuponeraForm.amount_paid ? parseFloat(editCuponeraForm.amount_paid) : null,
-            is_active: editCuponeraForm.is_active
+            is_active: editCuponeraForm.is_active,
+            is_paid: editCuponeraForm.is_paid
         }
         if (isMonthly) {
             updateData.total_months = editCuponeraForm.total_months
@@ -1237,10 +1242,27 @@ export function PatientDetails() {
                                     const daysLeft = endDate ? Math.ceil((endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null
 
                                     return (
-                                        <div key={cup.id} className={cn(
-                                            "border rounded-xl p-5 flex flex-col justify-between transition-opacity",
-                                            isExhausted ? "opacity-60 bg-muted/30 border-border/50" : "bg-card border-border shadow-sm hover:border-primary/50"
-                                        )}>
+                                        <div key={cup.id} 
+                                            onClick={() => {
+                                                setSelectedCuponera(cup)
+                                                setIsEditingCuponera(false)
+                                                setConfirmDeleteCuponera(false)
+                                                setEditCuponeraForm({
+                                                    cuponera_type: cup.cuponera_type || 'sessions',
+                                                    total_sessions: cup.total_sessions || 0,
+                                                    total_months: cup.total_months || 0,
+                                                    start_date: cup.start_date || '',
+                                                    invoice_number: cup.invoice_number || '',
+                                                    amount_paid: cup.amount_paid?.toString() || '',
+                                                    is_active: cup.is_active !== false,
+                                                    is_paid: cup.is_paid !== false
+                                                })
+                                            }}
+                                            className={cn(
+                                                "border rounded-xl p-5 flex flex-col justify-between transition-opacity cursor-pointer",
+                                                isExhausted ? "opacity-60 bg-muted/30 border-border/50" : "bg-card border-border shadow-sm hover:border-primary/50"
+                                            )}
+                                        >
                                             <div>
                                                 <div className="flex justify-between items-start mb-2">
                                                     <div className="flex items-center gap-2">
@@ -1550,8 +1572,21 @@ export function PatientDetails() {
                                 </div>
                             </div>
 
+                            <div className="flex items-center gap-2 p-3 bg-muted/50 border border-border rounded-md mt-4">
+                                <input
+                                    type="checkbox"
+                                    id="is_paid_new_pat"
+                                    checked={cuponeraForm.is_paid}
+                                    onChange={e => setCuponeraForm({ ...cuponeraForm, is_paid: e.target.checked })}
+                                    className="w-4 h-4 rounded border-input text-primary focus:ring-primary/20 accent-primary"
+                                />
+                                <label htmlFor="is_paid_new_pat" className="text-sm font-medium text-foreground cursor-pointer select-none">
+                                    Cuponera Paga (Monto recibido por completo)
+                                </label>
+                            </div>
+
                             <div className="pt-4 flex justify-end gap-3 mt-4">
-                                <button type="button" onClick={() => setIsCuponeraModalOpen(false)} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer">
+                                <button type="button" onClick={() => { setIsCuponeraModalOpen(false); setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: new Date().toISOString().split('T')[0], invoice_number: '', amount_paid: '', is_paid: true }) }} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer">
                                     Cancelar
                                 </button>
                                 <button type="submit" className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background cursor-pointer">
@@ -2218,6 +2253,15 @@ export function PatientDetails() {
                                                 {selectedCuponera.is_active ? 'Activa' : 'Inactiva'}
                                             </span>
                                         </div>
+                                        <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
+                                            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Estado de Pago</h4>
+                                            <span className={cn(
+                                                "inline-flex px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wide",
+                                                selectedCuponera.is_paid !== false ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600"
+                                            )}>
+                                                {selectedCuponera.is_paid !== false ? 'Pagada' : 'Impaga / Deuda'}
+                                            </span>
+                                        </div>
                                         {selectedCuponera.cuponera_type === 'months' && selectedCuponera.start_date && (
                                             <>
                                                 <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
@@ -2334,7 +2378,7 @@ export function PatientDetails() {
                                                 onChange={e => setEditCuponeraForm({...editCuponeraForm, amount_paid: e.target.value})}
                                             />
                                         </div>
-                                        <div className="flex items-end pb-2">
+                                        <div className="flex flex-col gap-2">
                                             <label className="flex items-center gap-2 cursor-pointer select-none">
                                                 <input
                                                     type="checkbox"
@@ -2343,6 +2387,15 @@ export function PatientDetails() {
                                                     onChange={e => setEditCuponeraForm({...editCuponeraForm, is_active: e.target.checked})}
                                                 />
                                                 <span className="text-sm font-medium text-foreground">Cuponera Activa</span>
+                                            </label>
+                                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                                    checked={editCuponeraForm.is_paid}
+                                                    onChange={e => setEditCuponeraForm({...editCuponeraForm, is_paid: e.target.checked})}
+                                                />
+                                                <span className="text-sm font-medium text-foreground">Cuponera Paga</span>
                                             </label>
                                         </div>
                                     </div>
