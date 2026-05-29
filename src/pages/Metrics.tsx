@@ -9,7 +9,6 @@ import {
     Award, 
     Activity, 
     Search,
-    ChevronRight,
     Filter,
     RefreshCw
 } from 'lucide-react'
@@ -689,7 +688,6 @@ export function Metrics() {
                                         ) : (
                                             <div className="flex flex-wrap gap-1.5">
                                                 {t.professionals.map(p => {
-                                                    const initials = p.name.split(' ').map(n => n.charAt(0)).join('').toUpperCase()
                                                     return (
                                                         <span 
                                                             key={p.id} 
