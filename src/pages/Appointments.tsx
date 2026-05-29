@@ -160,6 +160,10 @@ function AppointmentEvent({ event }: { event: any }) {
     const getStatusColor = (status: string) => STATUS_COLOR[status] ?? '#94a3b8'
 
     const getPaymentStatusInfo = useCallback(() => {
+        if (['cancelado', 'cancelado_tarde'].includes(event.status)) {
+            return { status: 'pendiente' as const, label: '' };
+        }
+
         const isUsingCuponera = !!event.raw.app?.cuponera_id;
         const cuponera = event.raw.cuponera;
 
@@ -171,7 +175,7 @@ function AppointmentEvent({ event }: { event: any }) {
         } else {
             if (event.raw.app?.is_unpaid) {
                 return { status: 'impago' as const, label: 'Falta Pagar' };
-            } else if (event.status === 'pendiente') {
+            } else if (event.status !== 'completado') {
                 return { status: 'pendiente' as const, label: 'A Cobrar' };
             }
             return { status: 'pago' as const, label: 'Pagado' };
