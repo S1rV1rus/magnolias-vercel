@@ -184,6 +184,42 @@ export function PatientDetails() {
 
         if (aData) setAppointments(aData)
 
+        // Self-healing synchronization for session-based cuponeras
+        if (cData && hData && aData) {
+            const updatedCuponeras = await Promise.all(cData.map(async (cup: any) => {
+                if (cup.cuponera_type === 'months') return cup
+
+                const apptRedemptions = aData.filter(
+                    (a: any) => a.cuponera_id === cup.id && ['confirmado', 'cancelado_tarde', 'completado'].includes(a.status)
+                )
+                const historyRedemptions = hData.filter(
+                    (h: any) => h.notes && h.notes.includes(`[CUPONERA:${cup.id}]`)
+                )
+                const actualUsed = apptRedemptions.length + historyRedemptions.length
+
+                if (cup.used_sessions !== actualUsed) {
+                    const isNowActive = actualUsed < cup.total_sessions
+                    const { error } = await supabase
+                        .from('cuponeras')
+                        .update({
+                            used_sessions: actualUsed,
+                            is_active: isNowActive
+                        })
+                        .eq('id', cup.id)
+
+                    if (!error) {
+                        return {
+                            ...cup,
+                            used_sessions: actualUsed,
+                            is_active: isNowActive
+                        }
+                    }
+                }
+                return cup
+            }))
+            setCuponeras(updatedCuponeras)
+        }
+
         setLoading(false)
     }
 
@@ -1215,7 +1251,7 @@ export function PatientDetails() {
                                     const isExhausted = available <= 0
 
                                     const cuponeraRedemptions = isMonthly ? [] : [
-                                        ...appointments.filter(a => a.cuponera_id === cup.id).map(a => ({
+                                        ...appointments.filter(a => a.cuponera_id === cup.id && ['confirmado', 'cancelado_tarde', 'completado'].includes(a.status)).map(a => ({
                                             id: a.id,
                                             date: new Date(a.start_time),
                                             professional: Array.isArray(a.professionals) ? a.professionals[0] : a.professionals,
