@@ -72,6 +72,7 @@ interface TooltipData {
     paymentLabel: string
     x: number
     y: number
+    cuponeraProgress?: string
 }
 
 function AppointmentTooltip({ data }: { data: TooltipData }) {
@@ -129,6 +130,12 @@ function AppointmentTooltip({ data }: { data: TooltipData }) {
                     <span className="appt-tooltip-icon">💆</span>
                     <span>{data.service}</span>
                 </div>
+                {data.cuponeraProgress && (
+                    <div className="appt-tooltip-row text-primary font-medium">
+                        <span className="appt-tooltip-icon font-normal">🎫</span>
+                        <span className="font-semibold">{data.cuponeraProgress}</span>
+                    </div>
+                )}
                 <div className="appt-tooltip-row">
                     <span className="appt-tooltip-icon">👤</span>
                     <span>{data.professional}</span>
@@ -186,10 +193,11 @@ function AppointmentEvent({ event }: { event: any }) {
         const cuponera = event.raw.cuponera;
 
         if (isUsingCuponera) {
+            const progress = cuponera ? ` ${cuponera.used_sessions}/${cuponera.total_sessions}` : '';
             if (cuponera && cuponera.is_paid === false) {
-                return { status: 'impago' as const, label: 'Falta Pagar (Cup.)' };
+                return { status: 'impago' as const, label: `Falta Pagar (Cup.${progress})` };
             }
-            return { status: 'pago' as const, label: 'Pagado (Cup.)' };
+            return { status: 'pago' as const, label: `Pagado (Cup.${progress})` };
         } else {
             if (event.raw.app?.is_unpaid) {
                 return { status: 'impago' as const, label: 'Falta Pagar' };
@@ -217,6 +225,9 @@ function AppointmentEvent({ event }: { event: any }) {
             paymentLabel: paymentInfo.label,
             x: e.clientX,
             y: e.clientY,
+            cuponeraProgress: event.raw.cuponera
+                ? `Sesión ${event.raw.cuponera.used_sessions} de ${event.raw.cuponera.total_sessions}`
+                : undefined,
         })
     }, [isTouch, names, service, professional, event.status, event.start, event.end, event.raw.app?.notes, getPaymentStatusInfo])
 
@@ -319,7 +330,10 @@ function AppointmentEvent({ event }: { event: any }) {
         >
             {tooltip && <AppointmentTooltip data={tooltip} />}
             <span className="font-semibold text-[11px] truncate">{names}</span>
-            <span className="text-[10px] truncate opacity-90">{service?.name || '—'}</span>
+            <span className="text-[10px] truncate opacity-90">
+                {service?.name || '—'}
+                {event.raw.cuponera && ` (${event.raw.cuponera.used_sessions}/${event.raw.cuponera.total_sessions})`}
+            </span>
             <span className="text-[10px] truncate opacity-75">
                 {professional?.first_name} {professional?.last_name}
             </span>
