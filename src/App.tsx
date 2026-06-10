@@ -15,6 +15,7 @@ import { PriceList } from './pages/PriceList'
 import { Blog } from './pages/Blog'
 import { Stock } from './pages/Stock'
 import { Metrics } from './pages/Metrics'
+import { Accounting } from './pages/Accounting'
 
 function App() {
     return (
@@ -40,6 +41,7 @@ function App() {
                                 <Route path="blog" element={<Blog />} />
                                 <Route path="stock" element={<Stock />} />
                                 <Route path="metrics" element={<Metrics />} />
+                                <Route path="accounting" element={<Accounting />} />
 
                                 {/* Admin-only route */}
                                 <Route element={<ProtectedRoute adminOnly />}>

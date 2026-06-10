@@ -51,7 +51,7 @@ export function Metrics() {
     const [endDate, setEndDate] = useState('')
     const [selectedProfId, setSelectedProfId] = useState('all')
     const [selectedServiceId, setSelectedServiceId] = useState('all')
-    const [selectedStatus, setSelectedStatus] = useState<'completado' | 'all' | 'confirmados-completados'>('completado')
+    const [selectedStatus, setSelectedStatus] = useState<'completado' | 'all' | 'confirmados-completados'>('confirmados-completados')
     
     // UI State
     const [activeTab, setActiveTab] = useState<'staff' | 'treatments'>('staff')
@@ -401,8 +401,8 @@ export function Metrics() {
                             value={selectedStatus}
                             onChange={e => setSelectedStatus(e.target.value as any)}
                         >
-                            <option value="completado">Solo Completados (Rendimiento)</option>
-                            <option value="confirmados-completados">Completados + Confirmados</option>
+                            <option value="confirmados-completados">Confirmados / Realizados</option>
+                            <option value="completado">Solo Completados (Histórico)</option>
                             <option value="all">Todos (Planificado)</option>
                         </select>
                     </div>

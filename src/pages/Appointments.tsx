@@ -201,7 +201,7 @@ function AppointmentEvent({ event }: { event: any }) {
         } else {
             if (event.raw.app?.is_unpaid) {
                 return { status: 'impago' as const, label: 'Falta Pagar' };
-            } else if (event.status !== 'completado') {
+            } else if (event.status === 'pendiente') {
                 return { status: 'pendiente' as const, label: 'A Cobrar' };
             }
             return { status: 'pago' as const, label: 'Pagado' };
@@ -517,17 +517,17 @@ export function Appointments() {
         const fetchCuponera = async () => {
             if (!isModalOpen) return
 
+            // Si estamos editando y YA tiene una cuponera vinculada
+            if (selectedEvent?.raw?.cuponera) {
+                setActiveCuponera({ ...selectedEvent.raw.cuponera, is_linked: true })
+                return
+            }
+
             const pid = formData.patient_ids[0]
             const sid = formData.service_id
 
             if (!pid || !sid) {
                 setActiveCuponera(null)
-                return
-            }
-
-            // Si estamos editando y YA tiene una cuponera vinculada
-            if (selectedEvent?.raw?.cuponera) {
-                setActiveCuponera({ ...selectedEvent.raw.cuponera, is_linked: true })
                 return
             }
 
@@ -635,11 +635,13 @@ export function Appointments() {
         const existingIds = event.raw.patientList?.map((p: any) => p.id) ?? ['']
         const profId = event.raw.professional?.id ?? event.raw.app?.professional_id ?? ''
         const roomId = event.raw.room?.id ?? event.raw.app?.room_id ?? ''
+        const srvId = event.raw.service?.id ?? event.raw.app?.service_id ?? ''
         setFormData(f => ({ 
             ...f, 
             status: event.status, 
             professional_id: profId, 
             room_id: roomId,
+            service_id: srvId,
             patient_ids: existingIds.length ? existingIds : [''],
             notes: event.raw.app?.notes || '',
             is_unpaid: event.raw.app?.is_unpaid || false
@@ -691,7 +693,7 @@ export function Appointments() {
             const updatePayload: Record<string, any> = { 
                 status: newStatus,
                 notes: formData.notes,
-                is_unpaid: newStatus === 'completado' ? formData.is_unpaid : false
+                is_unpaid: newStatus === 'confirmado' ? formData.is_unpaid : false
             }
             if (formData.professional_id) updatePayload.professional_id = formData.professional_id
             if (formData.room_id) updatePayload.room_id = formData.room_id
@@ -799,7 +801,7 @@ export function Appointments() {
             status: formData.status,
             notes: formData.notes,
             cuponera_id: activeCuponera?.id || null,
-            is_unpaid: formData.status === 'completado' ? formData.is_unpaid : false,
+            is_unpaid: formData.status === 'confirmado' ? formData.is_unpaid : false,
         }]).select('id').single()
 
         if (!error && newAppt) {
@@ -1108,11 +1110,10 @@ export function Appointments() {
                                             <option value="confirmado">Confirmado</option>
                                             <option value="cancelado">Cancelado</option>
                                             <option value="cancelado_tarde">Cancelado con penalidad</option>
-                                            <option value="completado">Completado</option>
                                         </select>
                                     </div>
                                     
-                                    {formData.status === 'completado' && !activeCuponera && (
+                                    {formData.status === 'confirmado' && !activeCuponera && (
                                         <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-md">
                                             <input
                                                 type="checkbox"
@@ -1264,11 +1265,10 @@ export function Appointments() {
                                             <option value="confirmado">Confirmado</option>
                                             <option value="cancelado">Cancelado</option>
                                             <option value="cancelado_tarde">Cancelado con penalidad</option>
-                                            <option value="completado">Completado</option>
                                         </select>
                                     </div>
 
-                                    {formData.status === 'completado' && !activeCuponera && (
+                                    {formData.status === 'confirmado' && !activeCuponera && (
                                         <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-md">
                                             <input
                                                 type="checkbox"
