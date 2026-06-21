@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { cn } from '../lib/utils'
+import { cn, formatMoney, currencySymbol } from '../lib/utils'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -28,6 +28,7 @@ interface Cuponera {
     total_sessions: number
     used_sessions: number
     is_active: boolean
+    currency: string | null
     patients: { id: string; first_name: string; last_name: string; document_id: string | null } | null
     services: { id: string; name: string } | null
 }
@@ -116,7 +117,7 @@ export function Accounting() {
             const { data: cupData } = await supabase
                 .from('cuponeras')
                 .select(`
-                    id, created_at, amount_paid, invoice_number, is_paid,
+                    id, created_at, amount_paid, invoice_number, is_paid, currency,
                     total_sessions, used_sessions, is_active,
                     patients!inner(id, first_name, last_name, document_id),
                     services!inner(id, name)
@@ -180,11 +181,14 @@ export function Accounting() {
     }
 
     // ── Computed KPIs ──────────────────────────────────────────────────────────
-    const cuponerasTotal = cuponeras.reduce((sum, c) => sum + (c.amount_paid ?? 0), 0)
+    // Totales de cuponeras separados por moneda (los servicios individuales se asumen en pesos).
+    const cuponerasTotal = cuponeras.reduce((sum, c) => sum + (c.currency !== 'USD' ? (c.amount_paid ?? 0) : 0), 0)
+    const cuponerasTotalUSD = cuponeras.reduce((sum, c) => sum + (c.currency === 'USD' ? (c.amount_paid ?? 0) : 0), 0)
     const serviciosTotal = individualServices.reduce((sum, s) => {
         return sum + (s.payment_amount ?? s.services?.price ?? 0)
     }, 0)
     const ingresoTotal = cuponerasTotal + serviciosTotal
+    const ingresoTotalUSD = cuponerasTotalUSD
     const totalTransacciones = cuponeras.length + individualServices.length
     const ticketPromedio = totalTransacciones > 0 ? ingresoTotal / totalTransacciones : 0
 
@@ -192,7 +196,8 @@ export function Accounting() {
     const pendientesServicios = individualServices.filter(s => s.is_unpaid === true).length
     const totalPendientes = pendientesCuponeras + pendientesServicios
 
-    const montoPendienteCuponeras = cuponeras.filter(c => c.is_paid === false).reduce((s, c) => s + (c.amount_paid ?? 0), 0)
+    const montoPendienteCuponeras = cuponeras.filter(c => c.is_paid === false && c.currency !== 'USD').reduce((s, c) => s + (c.amount_paid ?? 0), 0)
+    const montoPendienteCuponerasUSD = cuponeras.filter(c => c.is_paid === false && c.currency === 'USD').reduce((s, c) => s + (c.amount_paid ?? 0), 0)
     const montoPendienteServicios = individualServices.filter(s => s.is_unpaid === true).reduce((s, srv) => s + (srv.payment_amount ?? srv.services?.price ?? 0), 0)
     const montoPendienteTotal = montoPendienteCuponeras + montoPendienteServicios
 
@@ -254,7 +259,8 @@ export function Accounting() {
     })
 
     // ── Tab summary data ───────────────────────────────────────────────────────
-    const cuponerasSummaryTotal = filteredCuponeras.reduce((s, c) => s + (c.amount_paid ?? 0), 0)
+    const cuponerasSummaryTotal = filteredCuponeras.reduce((s, c) => s + (c.currency !== 'USD' ? (c.amount_paid ?? 0) : 0), 0)
+    const cuponerasSummaryTotalUSD = filteredCuponeras.reduce((s, c) => s + (c.currency === 'USD' ? (c.amount_paid ?? 0) : 0), 0)
     const cuponerasAvg = filteredCuponeras.length > 0 ? cuponerasSummaryTotal / filteredCuponeras.length : 0
 
     const serviciosSummaryTotal = filteredServicios.reduce((s, srv) => s + (srv.payment_amount ?? srv.services?.price ?? 0), 0)
@@ -388,7 +394,7 @@ export function Accounting() {
                 <td class="${cls}">${esc(c.patients?.document_id)}</td>
                 <td class="${cls}">${esc(c.services?.name)}</td>
                 <td class="${cls} td-center">${c.used_sessions}/${c.total_sessions}</td>
-                <td class="${cls} td-amount">${c.amount_paid ? fmtMoney(c.amount_paid) : '<span class="text-muted">—</span>'}</td>
+                <td class="${cls} td-amount">${c.amount_paid ? `${currencySymbol(c.currency)} ${Number(c.amount_paid).toLocaleString('es-UY')}` : '<span class="text-muted">—</span>'}</td>
                 <td class="${cls}">${esc(c.invoice_number) || '<span class="text-muted">—</span>'}</td>
                 <td class="${cls} td-center">${badge}</td>
             </tr>`
@@ -398,7 +404,7 @@ export function Accounting() {
             <tr class="summary-row">
                 <td colspan="4">Subtotal Cuponeras: ${sortedCuponeras.length}</td>
                 <td></td>
-                <td class="td-amount">${fmtMoney(cuponerasSummaryTotal)}</td>
+                <td class="td-amount">${fmtMoney(cuponerasSummaryTotal)}${cuponerasSummaryTotalUSD > 0 ? ' + US$ ' + cuponerasSummaryTotalUSD.toLocaleString('es-UY') : ''}</td>
                 <td></td>
                 <td class="td-center">${pendientesCuponeras} pendientes</td>
             </tr>
@@ -545,7 +551,10 @@ export function Accounting() {
                         <h3 className="text-2xl font-bold tracking-tight text-foreground">
                             ${ingresoTotal.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                         </h3>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">Cuponeras + Servicios</p>
+                        {ingresoTotalUSD > 0 && (
+                            <p className="text-sm font-semibold text-foreground/70 mt-0.5">+ US$ {ingresoTotalUSD.toLocaleString('es-UY')}</p>
+                        )}
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Cuponeras + Servicios (pesos)</p>
                     </div>
                 </div>
 
@@ -562,6 +571,9 @@ export function Accounting() {
                         <p className="text-[10px] text-muted-foreground mt-0.5">
                             ${cuponerasTotal.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} facturados
                         </p>
+                        {cuponerasTotalUSD > 0 && (
+                            <p className="text-[10px] text-muted-foreground/80">+ US$ {cuponerasTotalUSD.toLocaleString('es-UY')} en dólares</p>
+                        )}
                     </div>
                 </div>
 
@@ -607,6 +619,9 @@ export function Accounting() {
                                 : 'Sin deudas pendientes'
                             }
                         </p>
+                        {montoPendienteCuponerasUSD > 0 && (
+                            <p className="text-[10px] text-muted-foreground/80">+ US$ {montoPendienteCuponerasUSD.toLocaleString('es-UY')} en dólares</p>
+                        )}
                     </div>
                 </div>
 
@@ -746,7 +761,7 @@ export function Accounting() {
                                         <td className="px-5 py-3.5">
                                             {c.amount_paid ? (
                                                 <span className="font-bold text-foreground">
-                                                    ${Number(c.amount_paid).toLocaleString('es-AR')}
+                                                    {formatMoney(c.amount_paid, c.currency)}
                                                 </span>
                                             ) : (
                                                 <span className="text-xs text-muted-foreground italic">Sin monto</span>
@@ -800,6 +815,14 @@ export function Accounting() {
                                     ${cuponerasSummaryTotal.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                                 </span>
                             </div>
+                            {cuponerasSummaryTotalUSD > 0 && (
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-muted-foreground">En dólares:</span>
+                                    <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                                        US$ {cuponerasSummaryTotalUSD.toLocaleString('es-UY')}
+                                    </span>
+                                </div>
+                            )}
                             <div className="flex items-center gap-2">
                                 <span className="text-xs text-muted-foreground">Promedio por cuponera:</span>
                                 <span className="text-sm font-bold text-foreground">

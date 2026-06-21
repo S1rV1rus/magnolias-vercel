@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { ArrowLeft, Calendar, CalendarDays, FileText, CreditCard, Plus, Ticket, CheckCircle2, X, User, Pencil, Trash2, ImageIcon, ChevronLeft, ChevronRight, Play, Pause, Images, AlertCircle, ChevronDown, ChevronUp, Lock } from 'lucide-react'
-import { cn } from '../../lib/utils'
+import { cn, formatMoney } from '../../lib/utils'
+import { CurrencyToggle, ZonesPicker } from '../../components/CuponeraFields'
 
 export function PatientDetails() {
     const { id } = useParams()
@@ -24,6 +25,8 @@ export function PatientDetails() {
         total_sessions: 8,
         total_months: 3,
         start_date: new Date().toISOString().split('T')[0],
+        currency: 'UYU' as 'UYU' | 'USD',
+        body_zones: [] as string[],
         invoice_number: '',
         amount_paid: '',
         is_paid: true
@@ -61,6 +64,8 @@ export function PatientDetails() {
         total_sessions: 0,
         total_months: 0,
         start_date: '',
+        currency: 'UYU' as 'UYU' | 'USD',
+        body_zones: [] as string[],
         invoice_number: '',
         amount_paid: '',
         is_active: true,
@@ -245,6 +250,8 @@ export function PatientDetails() {
                 total_sessions: 0,
                 used_sessions: 0,
                 is_active: true,
+                currency: cuponeraForm.currency,
+                body_zones: cuponeraForm.body_zones.length ? cuponeraForm.body_zones : null,
                 invoice_number: cuponeraForm.invoice_number || null,
                 amount_paid: cuponeraForm.amount_paid ? parseFloat(cuponeraForm.amount_paid) : null,
                 is_paid: cuponeraForm.is_paid
@@ -252,7 +259,7 @@ export function PatientDetails() {
 
             if (!error) {
                 setIsCuponeraModalOpen(false)
-                setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: new Date().toISOString().split('T')[0], invoice_number: '', amount_paid: '', is_paid: true })
+                setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: new Date().toISOString().split('T')[0], currency: 'UYU', body_zones: [], invoice_number: '', amount_paid: '', is_paid: true })
                 loadData()
             } else {
                 console.error('Error creating monthly cuponera:', error)
@@ -269,6 +276,8 @@ export function PatientDetails() {
                 total_sessions: cuponeraForm.total_sessions,
                 used_sessions: sessionsToUse,
                 is_active: true,
+                currency: cuponeraForm.currency,
+                body_zones: cuponeraForm.body_zones.length ? cuponeraForm.body_zones : null,
                 invoice_number: cuponeraForm.invoice_number || null,
                 amount_paid: cuponeraForm.amount_paid ? parseFloat(cuponeraForm.amount_paid) : null,
                 is_paid: cuponeraForm.is_paid
@@ -283,7 +292,7 @@ export function PatientDetails() {
                 }
 
                 setIsCuponeraModalOpen(false)
-                setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: new Date().toISOString().split('T')[0], invoice_number: '', amount_paid: '', is_paid: true })
+                setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: new Date().toISOString().split('T')[0], currency: 'UYU', body_zones: [], invoice_number: '', amount_paid: '', is_paid: true })
                 loadData()
             } else {
                 console.error('Error creating cuponera:', error)
@@ -588,6 +597,8 @@ export function PatientDetails() {
         const updateData: any = {
             invoice_number: editCuponeraForm.invoice_number || null,
             amount_paid: editCuponeraForm.amount_paid ? parseFloat(editCuponeraForm.amount_paid) : null,
+            currency: editCuponeraForm.currency,
+            body_zones: editCuponeraForm.body_zones.length ? editCuponeraForm.body_zones : null,
             is_active: editCuponeraForm.is_active,
             is_paid: editCuponeraForm.is_paid
         }
@@ -1288,6 +1299,8 @@ export function PatientDetails() {
                                                     total_sessions: cup.total_sessions || 0,
                                                     total_months: cup.total_months || 0,
                                                     start_date: cup.start_date || '',
+                                                    currency: cup.currency === 'USD' ? 'USD' : 'UYU',
+                                                    body_zones: Array.isArray(cup.body_zones) ? cup.body_zones : [],
                                                     invoice_number: cup.invoice_number || '',
                                                     amount_paid: cup.amount_paid?.toString() || '',
                                                     is_active: cup.is_active !== false,
@@ -1571,16 +1584,29 @@ export function PatientDetails() {
                                     </div>
                                 </>
                             )}
+                            {/* Zonas del cuerpo a tratar */}
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-foreground flex justify-between">
+                                    Zonas a tratar
+                                    <span className="text-xs text-muted-foreground font-normal">(Opcional)</span>
+                                </label>
+                                <ZonesPicker value={cuponeraForm.body_zones} onChange={(z) => setCuponeraForm({ ...cuponeraForm, body_zones: z })} />
+                            </div>
+
                             <div className="pt-2 border-t border-border mt-6"></div>
 
                             <div className="space-y-4 mt-4">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-foreground">Moneda</label>
+                                    <CurrencyToggle value={cuponeraForm.currency} onChange={(c) => setCuponeraForm({ ...cuponeraForm, currency: c })} />
+                                </div>
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-foreground flex justify-between">
                                         Monto Cobrado
                                         <span className="text-xs text-muted-foreground font-normal">(Opcional)</span>
                                     </label>
                                     <div className="relative">
-                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">{cuponeraForm.currency === 'USD' ? 'US$' : '$'}</span>
                                         <input
                                             type="number"
                                             min="0"
@@ -1588,7 +1614,7 @@ export function PatientDetails() {
                                             placeholder="0.00"
                                             value={cuponeraForm.amount_paid}
                                             onChange={(e) => setCuponeraForm({ ...cuponeraForm, amount_paid: e.target.value })}
-                                            className="w-full pl-7 pr-3 py-2 bg-background border border-input rounded-md text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                            className="w-full pl-10 pr-3 py-2 bg-background border border-input rounded-md text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
                                         />
                                     </div>
                                 </div>
@@ -1622,7 +1648,7 @@ export function PatientDetails() {
                             </div>
 
                             <div className="pt-4 flex justify-end gap-3 mt-4">
-                                <button type="button" onClick={() => { setIsCuponeraModalOpen(false); setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: new Date().toISOString().split('T')[0], invoice_number: '', amount_paid: '', is_paid: true }) }} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer">
+                                <button type="button" onClick={() => { setIsCuponeraModalOpen(false); setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: new Date().toISOString().split('T')[0], currency: 'UYU', body_zones: [], invoice_number: '', amount_paid: '', is_paid: true }) }} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer">
                                     Cancelar
                                 </button>
                                 <button type="submit" className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background cursor-pointer">
@@ -2277,7 +2303,7 @@ export function PatientDetails() {
                                         <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
                                             <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Monto Abonado</h4>
                                             <p className="text-lg font-bold text-foreground">
-                                                {selectedCuponera.amount_paid ? `$${selectedCuponera.amount_paid}` : 'N/A'}
+                                                {selectedCuponera.amount_paid ? formatMoney(selectedCuponera.amount_paid, selectedCuponera.currency) : 'N/A'}
                                             </p>
                                         </div>
                                         <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
@@ -2317,6 +2343,16 @@ export function PatientDetails() {
                                                     </p>
                                                 </div>
                                             </>
+                                        )}
+                                        {Array.isArray(selectedCuponera.body_zones) && selectedCuponera.body_zones.length > 0 && (
+                                            <div className="col-span-2 bg-muted/30 p-4 rounded-lg border border-border/50">
+                                                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Zonas a tratar</h4>
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {selectedCuponera.body_zones.map((z: string) => (
+                                                        <span key={z} className="px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary border border-primary/30">{z}</span>
+                                                    ))}
+                                                </div>
+                                            </div>
                                         )}
                                     </div>
 
@@ -2434,6 +2470,15 @@ export function PatientDetails() {
                                                 <span className="text-sm font-medium text-foreground">Cuponera Paga</span>
                                             </label>
                                         </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-foreground">Moneda</label>
+                                        <CurrencyToggle value={editCuponeraForm.currency} onChange={(c) => setEditCuponeraForm({ ...editCuponeraForm, currency: c })} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-foreground">Zonas a tratar</label>
+                                        <ZonesPicker value={editCuponeraForm.body_zones} onChange={(z) => setEditCuponeraForm({ ...editCuponeraForm, body_zones: z })} />
                                     </div>
 
                                     <div className="flex justify-end gap-3 pt-6 border-t border-border/50">

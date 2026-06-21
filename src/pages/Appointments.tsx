@@ -509,6 +509,7 @@ export function Appointments() {
         status: 'pendiente',
         notes: '',
         is_unpaid: false,
+        duration: 0,
     })
 
     const [activeCuponera, setActiveCuponera] = useState<any>(null)
@@ -619,6 +620,7 @@ export function Appointments() {
             status: 'pendiente',
             notes: '',
             is_unpaid: false,
+            duration: 0,
         })
         setIsModalOpen(true)
     }
@@ -636,15 +638,17 @@ export function Appointments() {
         const profId = event.raw.professional?.id ?? event.raw.app?.professional_id ?? ''
         const roomId = event.raw.room?.id ?? event.raw.app?.room_id ?? ''
         const srvId = event.raw.service?.id ?? event.raw.app?.service_id ?? ''
-        setFormData(f => ({ 
-            ...f, 
-            status: event.status, 
-            professional_id: profId, 
+        const durationMin = Math.max(5, Math.round((event.end.getTime() - event.start.getTime()) / 60000))
+        setFormData(f => ({
+            ...f,
+            status: event.status,
+            professional_id: profId,
             room_id: roomId,
             service_id: srvId,
             patient_ids: existingIds.length ? existingIds : [''],
             notes: event.raw.app?.notes || '',
-            is_unpaid: event.raw.app?.is_unpaid || false
+            is_unpaid: event.raw.app?.is_unpaid || false,
+            duration: durationMin,
         }))
         setIsModalOpen(true)
     }, [])
@@ -690,13 +694,18 @@ export function Appointments() {
         if (selectedEvent) {
             const prevStatus = selectedEvent.status
             const newStatus = formData.status
-            const updatePayload: Record<string, any> = { 
+            const updatePayload: Record<string, any> = {
                 status: newStatus,
                 notes: formData.notes,
                 is_unpaid: newStatus === 'confirmado' ? formData.is_unpaid : false
             }
             if (formData.professional_id) updatePayload.professional_id = formData.professional_id
             if (formData.room_id) updatePayload.room_id = formData.room_id
+            // Permitir acortar/ajustar manualmente la duración del turno (recalcula end_time).
+            if (formData.duration && formData.duration > 0) {
+                const newEnd = new Date(selectedEvent.start.getTime() + formData.duration * 60000)
+                updatePayload.end_time = newEnd.toISOString()
+            }
             const { error } = await supabase
                 .from('appointments')
                 .update(updatePayload)
@@ -1100,6 +1109,19 @@ export function Appointments() {
                                     </div>
 
                                     <div className="space-y-2">
+                                        <label className="text-sm font-medium text-foreground">Duración (min)</label>
+                                        <input
+                                            type="number"
+                                            min="5"
+                                            step="5"
+                                            value={formData.duration}
+                                            onChange={e => setFormData({ ...formData, duration: parseInt(e.target.value) || 0 })}
+                                            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                        />
+                                        <p className="text-xs text-muted-foreground">Podés acortar el turno (ej. de 50 a 20 o 30 min) en membresías combinadas.</p>
+                                    </div>
+
+                                    <div className="space-y-2">
                                         <label className="text-sm font-medium text-foreground">Actualizar Estado</label>
                                         <select
                                             className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
@@ -1294,6 +1316,9 @@ export function Appointments() {
                                     value={formData.notes}
                                     onChange={e => setFormData({ ...formData, notes: e.target.value })}
                                 />
+                                <p className="text-xs text-muted-foreground">
+                                    Si el cliente no tomó la sesión completa, dejá asentado acá qué tratamiento específico se realizó.
+                                </p>
                             </div>
 
                             <div className="pt-4 flex items-center justify-between mt-2">

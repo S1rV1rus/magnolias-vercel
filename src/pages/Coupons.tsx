@@ -4,6 +4,24 @@ import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Plus, Ticket, Search, CheckCircle2, X, Pencil, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { cn, formatMoney } from '../lib/utils'
+import { CurrencyToggle, ZonesPicker } from '../components/CuponeraFields'
+
+const initialForm = {
+    patient_id: '',
+    service_id: '',
+    cuponera_type: 'sessions' as 'sessions' | 'months',
+    total_sessions: 8,
+    used_sessions: 0,
+    total_months: 3,
+    used_months: 0,
+    start_date: new Date().toISOString().split('T')[0],
+    currency: 'UYU' as 'UYU' | 'USD',
+    body_zones: [] as string[],
+    invoice_number: '',
+    amount_paid: '',
+    is_paid: true,
+}
 
 // ─── Patient Search Input Helper ────────────────────────────────────────────────
 function PatientSearchInput({
@@ -120,15 +138,7 @@ export function Coupons() {
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [editingId, setEditingId] = useState<string | null>(null)
-    const [formData, setFormData] = useState({
-        patient_id: '',
-        service_id: '',
-        total_sessions: 8,
-        used_sessions: 0,
-        invoice_number: '',
-        amount_paid: '',
-        is_paid: true
-    })
+    const [formData, setFormData] = useState({ ...initialForm })
 
 
     const fetchData = async () => {
@@ -176,15 +186,27 @@ export function Coupons() {
         e.preventDefault()
         if (!formData.patient_id || !formData.service_id) return
 
-        const payload = {
+        const isMonthly = formData.cuponera_type === 'months'
+        const payload: Record<string, any> = {
             patient_id: formData.patient_id,
             service_id: formData.service_id,
-            total_sessions: formData.total_sessions,
-            used_sessions: formData.used_sessions,
-            is_active: formData.used_sessions < formData.total_sessions,
+            cuponera_type: formData.cuponera_type,
+            currency: formData.currency,
+            body_zones: formData.body_zones.length ? formData.body_zones : null,
             invoice_number: formData.invoice_number || null,
             amount_paid: formData.amount_paid ? parseFloat(formData.amount_paid) : null,
-            is_paid: formData.is_paid
+            is_paid: formData.is_paid,
+        }
+        if (isMonthly) {
+            payload.total_months = formData.total_months
+            payload.used_months = formData.used_months
+            payload.start_date = formData.start_date || null
+            payload.total_sessions = 0
+            payload.is_active = formData.used_months < formData.total_months
+        } else {
+            payload.total_sessions = formData.total_sessions
+            payload.used_sessions = formData.used_sessions
+            payload.is_active = formData.used_sessions < formData.total_sessions
         }
 
         let error
@@ -204,7 +226,7 @@ export function Coupons() {
         if (!error) {
             setIsModalOpen(false)
             setEditingId(null)
-            setFormData({ patient_id: '', service_id: '', total_sessions: 8, used_sessions: 0, invoice_number: '', amount_paid: '', is_paid: true })
+            setFormData({ ...initialForm })
             fetchData()
         } else {
             console.error('Error saving cuponera:', error)
@@ -215,13 +237,20 @@ export function Coupons() {
     const handleEdit = (c: any) => {
         setEditingId(c.id)
         setFormData({
+            ...initialForm,
             patient_id: c.patient_id,
             service_id: c.service_id,
-            total_sessions: c.total_sessions,
-            used_sessions: c.used_sessions,
+            cuponera_type: c.cuponera_type === 'months' ? 'months' : 'sessions',
+            total_sessions: c.total_sessions ?? 8,
+            used_sessions: c.used_sessions ?? 0,
+            total_months: c.total_months ?? 3,
+            used_months: c.used_months ?? 0,
+            start_date: c.start_date || new Date().toISOString().split('T')[0],
+            currency: c.currency === 'USD' ? 'USD' : 'UYU',
+            body_zones: Array.isArray(c.body_zones) ? c.body_zones : [],
             invoice_number: c.invoice_number || '',
             amount_paid: c.amount_paid?.toString() || '',
-            is_paid: c.is_paid !== false
+            is_paid: c.is_paid !== false,
         })
         setIsModalOpen(true)
     }
@@ -313,7 +342,11 @@ export function Coupons() {
                             {filteredCuponeras.map((c) => {
                                 const patient = Array.isArray(c.patients) ? c.patients[0] : c.patients
                                 const service = Array.isArray(c.services) ? c.services[0] : c.services
-                                const pct = (c.used_sessions / c.total_sessions) * 100
+                                const isMonthly = c.cuponera_type === 'months'
+                                const used = isMonthly ? (c.used_months || 0) : c.used_sessions
+                                const total = isMonthly ? (c.total_months || 1) : c.total_sessions
+                                const pct = total > 0 ? (used / total) * 100 : 0
+                                const zones: string[] = Array.isArray(c.body_zones) ? c.body_zones : []
 
                                 return (
                                     <tr key={c.id} className="hover:bg-muted/30 transition-colors">
@@ -328,9 +361,18 @@ export function Coupons() {
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
-                                            <span className="font-medium text-primary">
-                                                {service?.name || 'Servicio Desconocido'}
-                                            </span>
+                                            <div className="flex flex-col gap-1">
+                                                <span className="font-medium text-primary">
+                                                    {service?.name || 'Servicio Desconocido'}
+                                                </span>
+                                                {zones.length > 0 && (
+                                                    <div className="flex flex-wrap gap-1 max-w-[220px]">
+                                                        {zones.map(z => (
+                                                            <span key={z} className="px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground border border-border">{z}</span>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </td>
                                         <td className="px-6 py-4 text-muted-foreground">
                                             {format(new Date(c.created_at), "dd 'de' MMMM, yyyy", { locale: es })}
@@ -339,7 +381,7 @@ export function Coupons() {
                                             <div className="flex flex-col gap-1">
                                                 {c.amount_paid ? (
                                                     <span className="font-medium text-foreground">
-                                                        $ {Number(c.amount_paid).toLocaleString('es-AR')}
+                                                        {formatMoney(c.amount_paid, c.currency)}
                                                     </span>
                                                 ) : (
                                                     <span className="text-xs text-muted-foreground italic">Sin monto</span>
@@ -356,8 +398,8 @@ export function Coupons() {
                                         <td className="px-6 py-4 min-w-[200px]">
                                             <div className="flex flex-col gap-1.5">
                                                 <div className="flex items-center justify-between text-xs">
-                                                    <span className="text-muted-foreground">Usadas: {c.used_sessions}</span>
-                                                    <span className="font-medium">Total: {c.total_sessions}</span>
+                                                    <span className="text-muted-foreground">Usad{isMonthly ? 'os' : 'as'}: {used}</span>
+                                                    <span className="font-medium">Total: {total} {isMonthly ? 'meses' : ''}</span>
                                                 </div>
                                                 <div className="w-full bg-background rounded-full h-2 border border-border overflow-hidden">
                                                     <div
@@ -429,7 +471,7 @@ export function Coupons() {
                                 <Ticket className="w-5 h-5 text-primary" />
                                 {editingId ? 'Editar Cuponera' : 'Vender Nueva Cuponera'}
                             </h2>
-                            <button onClick={() => { setIsModalOpen(false); setEditingId(null); setFormData({ patient_id: '', service_id: '', total_sessions: 8, used_sessions: 0, invoice_number: '', amount_paid: '', is_paid: true }) }} className="text-muted-foreground hover:text-foreground cursor-pointer p-1">
+                            <button onClick={() => { setIsModalOpen(false); setEditingId(null); setFormData({ ...initialForm }) }} className="text-muted-foreground hover:text-foreground cursor-pointer p-1">
                                 &times;
                             </button>
                         </div>
@@ -446,53 +488,138 @@ export function Coupons() {
                                 />
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium text-foreground">Servicio Médico</label>
-                                    <select
-                                        required
-                                        className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
-                                        value={formData.service_id}
-                                        onChange={(e) => setFormData({ ...formData, service_id: e.target.value })}
+                            {/* Tipo de cuponera */}
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-foreground">Tipo de Cuponera</label>
+                                <div className="flex bg-muted rounded-lg p-1 gap-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => setFormData({ ...formData, cuponera_type: 'sessions' })}
+                                        className={cn(
+                                            "flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all cursor-pointer",
+                                            formData.cuponera_type === 'sessions' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                                        )}
                                     >
-                                        <option value="" disabled>Seleccionar tratamiento...</option>
-                                        {services.map(s => (
-                                            <option key={s.id} value={s.id}>{s.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium text-foreground">Cant. Sesiones Totales</label>
-                                    <input
-                                        type="number"
-                                        required
-                                        min="1"
-                                        max="100"
-                                        value={formData.total_sessions}
-                                        onChange={(e) => setFormData({ ...formData, total_sessions: parseInt(e.target.value) })}
-                                        className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
-                                    />
+                                        Por Sesiones
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFormData({ ...formData, cuponera_type: 'months' })}
+                                        className={cn(
+                                            "flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all cursor-pointer",
+                                            formData.cuponera_type === 'months' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                                        )}
+                                    >
+                                        Por Tiempo
+                                    </button>
                                 </div>
                             </div>
 
-                            {editingId && (
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium text-foreground">Sesiones Ya Usadas</label>
-                                    <input
-                                        type="number"
-                                        required
-                                        min="0"
-                                        max={formData.total_sessions}
-                                        value={formData.used_sessions}
-                                        onChange={(e) => setFormData({ ...formData, used_sessions: parseInt(e.target.value) })}
-                                        className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none text-primary font-bold"
-                                    />
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-foreground">Servicio Médico</label>
+                                <select
+                                    required
+                                    className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                    value={formData.service_id}
+                                    onChange={(e) => setFormData({ ...formData, service_id: e.target.value })}
+                                >
+                                    <option value="" disabled>Seleccionar tratamiento...</option>
+                                    {services.map(s => (
+                                        <option key={s.id} value={s.id}>{s.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {formData.cuponera_type === 'sessions' ? (
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-foreground">Cant. Sesiones Totales</label>
+                                        <input
+                                            type="number"
+                                            required
+                                            min="1"
+                                            max="100"
+                                            value={formData.total_sessions}
+                                            onChange={(e) => setFormData({ ...formData, total_sessions: parseInt(e.target.value) || 0 })}
+                                            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                        />
+                                    </div>
+                                    {editingId && (
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-foreground">Sesiones Ya Usadas</label>
+                                            <input
+                                                type="number"
+                                                required
+                                                min="0"
+                                                max={formData.total_sessions}
+                                                value={formData.used_sessions}
+                                                onChange={(e) => setFormData({ ...formData, used_sessions: parseInt(e.target.value) || 0 })}
+                                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none text-primary font-bold"
+                                            />
+                                        </div>
+                                    )}
                                 </div>
+                            ) : (
+                                <>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-foreground">Cant. de Meses</label>
+                                            <input
+                                                type="number"
+                                                required
+                                                min="1"
+                                                max="60"
+                                                value={formData.total_months}
+                                                onChange={(e) => setFormData({ ...formData, total_months: parseInt(e.target.value) || 0 })}
+                                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                            />
+                                            <p className="text-xs text-muted-foreground">Hasta 60 meses (5 años).</p>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-foreground">Fecha de Inicio</label>
+                                            <input
+                                                type="date"
+                                                required
+                                                value={formData.start_date}
+                                                onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+                                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                            />
+                                        </div>
+                                    </div>
+                                    {editingId && (
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-foreground">Meses Ya Usados</label>
+                                            <input
+                                                type="number"
+                                                required
+                                                min="0"
+                                                max={formData.total_months}
+                                                value={formData.used_months}
+                                                onChange={(e) => setFormData({ ...formData, used_months: parseInt(e.target.value) || 0 })}
+                                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none text-primary font-bold"
+                                            />
+                                        </div>
+                                    )}
+                                </>
                             )}
+
+                            {/* Zonas del cuerpo a tratar */}
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-foreground flex justify-between">
+                                    Zonas a tratar
+                                    <span className="text-xs text-muted-foreground font-normal">(Opcional)</span>
+                                </label>
+                                <ZonesPicker value={formData.body_zones} onChange={(z) => setFormData({ ...formData, body_zones: z })} />
+                            </div>
 
                             <div className="pt-2 border-t border-border mt-6"></div>
 
+
+                            {/* Moneda */}
+                            <div className="space-y-2 mt-4">
+                                <label className="text-sm font-medium text-foreground">Moneda</label>
+                                <CurrencyToggle value={formData.currency} onChange={(c) => setFormData({ ...formData, currency: c })} />
+                            </div>
 
                             <div className="grid grid-cols-2 gap-4 mt-4">
                                 <div className="space-y-2">
@@ -501,7 +628,7 @@ export function Coupons() {
                                         <span className="text-xs text-muted-foreground font-normal">(Opcional)</span>
                                     </label>
                                     <div className="relative">
-                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">{formData.currency === 'USD' ? 'US$' : '$'}</span>
                                         <input
                                             type="number"
                                             min="0"
@@ -509,7 +636,7 @@ export function Coupons() {
                                             placeholder="0.00"
                                             value={formData.amount_paid}
                                             onChange={(e) => setFormData({ ...formData, amount_paid: e.target.value })}
-                                            className="w-full pl-7 pr-3 py-2 bg-background border border-input rounded-md text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                            className="w-full pl-10 pr-3 py-2 bg-background border border-input rounded-md text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
                                         />
                                     </div>
                                 </div>
@@ -543,7 +670,7 @@ export function Coupons() {
                             </div>
 
                             <div className="pt-4 flex justify-end gap-3 mt-4">
-                                <button type="button" onClick={() => { setIsModalOpen(false); setEditingId(null); setFormData({ patient_id: '', service_id: '', total_sessions: 8, used_sessions: 0, invoice_number: '', amount_paid: '', is_paid: true }) }} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer">
+                                <button type="button" onClick={() => { setIsModalOpen(false); setEditingId(null); setFormData({ ...initialForm }) }} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer">
                                     Cancelar
                                 </button>
                                 <button type="submit" className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2 flex items-center gap-2 cursor-pointer">
