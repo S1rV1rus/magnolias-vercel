@@ -4,7 +4,7 @@ import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Plus, Ticket, Search, CheckCircle2, X, Pencil, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { cn, formatMoney } from '../lib/utils'
+import { cn, formatMoney, monthsProgress } from '../lib/utils'
 import { CurrencyToggle, ZonesPicker } from '../components/CuponeraFields'
 
 const initialForm = {
@@ -343,7 +343,8 @@ export function Coupons() {
                                 const patient = Array.isArray(c.patients) ? c.patients[0] : c.patients
                                 const service = Array.isArray(c.services) ? c.services[0] : c.services
                                 const isMonthly = c.cuponera_type === 'months'
-                                const used = isMonthly ? (c.used_months || 0) : c.used_sessions
+                                const mp = isMonthly ? monthsProgress(c.start_date, c.total_months) : null
+                                const used = isMonthly ? (mp?.transcurridos ?? 0) : c.used_sessions
                                 const total = isMonthly ? (c.total_months || 1) : c.total_sessions
                                 const pct = total > 0 ? (used / total) * 100 : 0
                                 const zones: string[] = Array.isArray(c.body_zones) ? c.body_zones : []
@@ -586,20 +587,7 @@ export function Coupons() {
                                             />
                                         </div>
                                     </div>
-                                    {editingId && (
-                                        <div className="space-y-2">
-                                            <label className="text-sm font-medium text-foreground">Meses Ya Usados</label>
-                                            <input
-                                                type="number"
-                                                required
-                                                min="0"
-                                                max={formData.total_months}
-                                                value={formData.used_months}
-                                                onChange={(e) => setFormData({ ...formData, used_months: parseInt(e.target.value) || 0 })}
-                                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none text-primary font-bold"
-                                            />
-                                        </div>
-                                    )}
+                                    <p className="text-xs text-muted-foreground">Los meses transcurridos se cuentan solos a partir de la fecha de inicio.</p>
                                 </>
                             )}
 

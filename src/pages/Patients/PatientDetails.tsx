@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { ArrowLeft, Calendar, CalendarDays, FileText, CreditCard, Plus, Ticket, CheckCircle2, X, User, Pencil, Trash2, ImageIcon, ChevronLeft, ChevronRight, Play, Pause, Images, AlertCircle, ChevronDown, ChevronUp, Lock } from 'lucide-react'
-import { cn, formatMoney } from '../../lib/utils'
+import { cn, formatMoney, monthsProgress } from '../../lib/utils'
 import { CurrencyToggle, ZonesPicker } from '../../components/CuponeraFields'
 
 export function PatientDetails() {
@@ -1258,8 +1258,9 @@ export function PatientDetails() {
                                 cuponeras.map(cup => {
                                     const service = Array.isArray(cup.services) ? cup.services[0] : cup.services
                                     const isMonthly = cup.cuponera_type === 'months'
-                                    const available = isMonthly ? (cup.total_months || 0) - (cup.used_months || 0) : cup.total_sessions - cup.used_sessions
-                                    const isExhausted = available <= 0
+                                    const mp = isMonthly ? monthsProgress(cup.start_date, cup.total_months) : null
+                                    const available = isMonthly ? (mp?.restantes ?? 0) : cup.total_sessions - cup.used_sessions
+                                    const isExhausted = isMonthly ? !(mp?.activa ?? true) : available <= 0
 
                                     const cuponeraRedemptions = isMonthly ? [] : [
                                         ...appointments.filter(a => a.cuponera_id === cup.id && ['confirmado', 'cancelado_tarde', 'completado'].includes(a.status)).map(a => ({
@@ -1350,7 +1351,7 @@ export function PatientDetails() {
                                                         </div>
                                                         <div className="w-px h-8 bg-border"></div>
                                                         <div className="text-center w-full">
-                                                            <span className="block text-2xl font-bold text-foreground leading-none">{cup.used_months || 0}</span>
+                                                            <span className="block text-2xl font-bold text-foreground leading-none">{mp?.transcurridos ?? 0}</span>
                                                             <span className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1 block">Transcurridos</span>
                                                         </div>
                                                         <div className="w-px h-8 bg-border"></div>
@@ -1381,7 +1382,7 @@ export function PatientDetails() {
 
                                                 {/* Progress bar */}
                                                 {(() => {
-                                                    const used = isMonthly ? (cup.used_months || 0) : cup.used_sessions
+                                                    const used = isMonthly ? (mp?.transcurridos ?? 0) : cup.used_sessions
                                                     const total = isMonthly ? (cup.total_months || 1) : cup.total_sessions
                                                     const pct = total > 0 ? used / total : 0
                                                     return (
@@ -2289,7 +2290,7 @@ export function PatientDetails() {
                                             </h4>
                                             <p className="text-lg font-bold text-foreground">
                                                 {(selectedCuponera.cuponera_type === 'months')
-                                                    ? `${selectedCuponera.used_months || 0} / ${selectedCuponera.total_months}`
+                                                    ? `${monthsProgress(selectedCuponera.start_date, selectedCuponera.total_months).transcurridos} / ${selectedCuponera.total_months}`
                                                     : `${selectedCuponera.used_sessions} / ${selectedCuponera.total_sessions}`
                                                 }
                                             </p>

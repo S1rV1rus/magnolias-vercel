@@ -8,6 +8,7 @@ import { Plus, X, UserPlus, Trash2, CheckCircle2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { writeLog } from '../lib/logger'
+import { monthsProgress } from '../lib/utils'
 
 const roundToNearest30 = (date: Date): Date => {
     const ms = 1000 * 60 * 30
@@ -193,11 +194,17 @@ function AppointmentEvent({ event }: { event: any }) {
         const cuponera = event.raw.cuponera;
 
         if (isUsingCuponera) {
-            const progress = cuponera ? ` ${cuponera.used_sessions}/${cuponera.total_sessions}` : '';
+            const isMonthly = cuponera?.cuponera_type === 'months';
+            const tag = isMonthly ? 'Pase' : 'Cup.';
+            const progress = cuponera
+                ? (isMonthly
+                    ? ` ${monthsProgress(cuponera.start_date, cuponera.total_months).transcurridos}/${cuponera.total_months}m`
+                    : ` ${cuponera.used_sessions}/${cuponera.total_sessions}`)
+                : '';
             if (cuponera && cuponera.is_paid === false) {
-                return { status: 'impago' as const, label: `Falta Pagar (Cup.${progress})` };
+                return { status: 'impago' as const, label: `Falta Pagar (${tag}${progress})` };
             }
-            return { status: 'pago' as const, label: `Pagado (Cup.${progress})` };
+            return { status: 'pago' as const, label: `Pagado (${tag}${progress})` };
         } else {
             if (event.raw.app?.is_unpaid) {
                 return { status: 'impago' as const, label: 'Falta Pagar' };
@@ -226,7 +233,9 @@ function AppointmentEvent({ event }: { event: any }) {
             x: e.clientX,
             y: e.clientY,
             cuponeraProgress: event.raw.cuponera
-                ? `Sesión ${event.raw.cuponera.used_sessions} de ${event.raw.cuponera.total_sessions}`
+                ? (event.raw.cuponera.cuponera_type === 'months'
+                    ? `Mes ${monthsProgress(event.raw.cuponera.start_date, event.raw.cuponera.total_months).transcurridos} de ${event.raw.cuponera.total_months}`
+                    : `Sesión ${event.raw.cuponera.used_sessions} de ${event.raw.cuponera.total_sessions}`)
                 : undefined,
         })
     }, [isTouch, names, service, professional, event.status, event.start, event.end, event.raw.app?.notes, getPaymentStatusInfo])
@@ -332,7 +341,11 @@ function AppointmentEvent({ event }: { event: any }) {
             <span className="font-semibold text-[11px] truncate">{names}</span>
             <span className="text-[10px] truncate opacity-90">
                 {service?.name || '—'}
-                {event.raw.cuponera && ` (${event.raw.cuponera.used_sessions}/${event.raw.cuponera.total_sessions})`}
+                {event.raw.cuponera && (
+                    event.raw.cuponera.cuponera_type === 'months'
+                        ? ` (Mes ${monthsProgress(event.raw.cuponera.start_date, event.raw.cuponera.total_months).transcurridos}/${event.raw.cuponera.total_months})`
+                        : ` (${event.raw.cuponera.used_sessions}/${event.raw.cuponera.total_sessions})`
+                )}
             </span>
             <span className="text-[10px] truncate opacity-75">
                 {professional?.first_name} {professional?.last_name}
@@ -535,7 +548,7 @@ export function Appointments() {
             // Si es un turno nuevo o uno sin cuponera vinculada, buscar si hay una activa
             const { data } = await supabase
                 .from('cuponeras')
-                .select('id, total_sessions, used_sessions')
+                .select('id, total_sessions, used_sessions, is_paid, cuponera_type, total_months, start_date')
                 .eq('patient_id', pid)
                 .eq('service_id', sid)
                 .eq('is_active', true)
@@ -560,7 +573,7 @@ export function Appointments() {
                 services(id, name, duration_minutes),
                 professionals(id, first_name, last_name, color),
                 rooms(id, name),
-                cuponeras(id, total_sessions, used_sessions, is_paid)
+                cuponeras(id, total_sessions, used_sessions, is_paid, cuponera_type, total_months, start_date)
             `)
 
         if (appts) {
@@ -724,7 +737,7 @@ export function Appointments() {
                 const wasConsumed = ['confirmado', 'cancelado_tarde'].includes(prevStatus)
                 const isNowConsumed = ['confirmado', 'cancelado_tarde'].includes(newStatus)
 
-                if (prevStatus !== newStatus && selectedEvent.raw.cuponera && wasConsumed !== isNowConsumed) {
+                if (prevStatus !== newStatus && selectedEvent.raw.cuponera && selectedEvent.raw.cuponera.cuponera_type !== 'months' && wasConsumed !== isNowConsumed) {
                     const cuponera = selectedEvent.raw.cuponera
                     const sessionDelta = isNowConsumed ? 1 : -1
                     const newUsed = cuponera.used_sessions + sessionDelta
@@ -862,8 +875,8 @@ export function Appointments() {
             }
 
 
-            // Increment cuponera sessions if created as consumed
-            if (activeCuponera && ['confirmado', 'cancelado_tarde'].includes(formData.status)) {
+            // Increment cuponera sessions if created as consumed (solo cuponeras por sesiones; los pases mensuales no descuentan)
+            if (activeCuponera && activeCuponera.cuponera_type !== 'months' && ['confirmado', 'cancelado_tarde'].includes(formData.status)) {
                 const newUsed = activeCuponera.used_sessions + 1
                 const isNowActive = newUsed < activeCuponera.total_sessions
 
@@ -894,8 +907,8 @@ export function Appointments() {
         const { error } = await supabase.from('appointments').delete().eq('id', selectedEvent.id)
 
         if (!error) {
-            // Restore cuponera session if deleted while consumed
-            if (raw.cuponera && ['confirmado', 'cancelado_tarde'].includes(selectedEvent.status)) {
+            // Restore cuponera session if deleted while consumed (solo por sesiones)
+            if (raw.cuponera && raw.cuponera.cuponera_type !== 'months' && ['confirmado', 'cancelado_tarde'].includes(selectedEvent.status)) {
                 const newUsed = raw.cuponera.used_sessions - 1
                 await supabase.from('cuponeras').update({
                     used_sessions: newUsed,
@@ -1037,7 +1050,12 @@ export function Appointments() {
                                                     {activeCuponera.is_linked ? 'Cuponera vinculada a este turno' : 'Cuponera activa seleccionada'}
                                                 </p>
                                                 <p className="text-xs text-green-600/80 dark:text-green-500/80">
-                                                    Progreso: {activeCuponera.used_sessions} de {activeCuponera.total_sessions} sesiones usadas.
+                                                    {activeCuponera.cuponera_type === 'months'
+                                                        ? (() => {
+                                                            const mp = monthsProgress(activeCuponera.start_date, activeCuponera.total_months)
+                                                            return `Pase mensual · Mes ${mp.transcurridos} de ${activeCuponera.total_months}${mp.vence ? ` · vence ${mp.vence.toLocaleDateString('es-UY')}` : ''}`
+                                                        })()
+                                                        : `Progreso: ${activeCuponera.used_sessions} de ${activeCuponera.total_sessions} sesiones usadas.`}
                                                 </p>
                                             </div>
                                         </div>
@@ -1247,7 +1265,12 @@ export function Appointments() {
                                                     Cuponera disponible
                                                 </p>
                                                 <p className="text-xs text-green-600/80 dark:text-green-500/80">
-                                                    Progreso: {activeCuponera.used_sessions} de {activeCuponera.total_sessions} sesiones usadas.
+                                                    {activeCuponera.cuponera_type === 'months'
+                                                        ? (() => {
+                                                            const mp = monthsProgress(activeCuponera.start_date, activeCuponera.total_months)
+                                                            return `Pase mensual · Mes ${mp.transcurridos} de ${activeCuponera.total_months}${mp.vence ? ` · vence ${mp.vence.toLocaleDateString('es-UY')}` : ''}`
+                                                        })()
+                                                        : `Progreso: ${activeCuponera.used_sessions} de ${activeCuponera.total_sessions} sesiones usadas.`}
                                                 </p>
                                             </div>
                                         </div>
