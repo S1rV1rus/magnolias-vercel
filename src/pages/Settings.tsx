@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { Plus, Trash2, Edit2, ShieldAlert, Check, Sparkles, X, KeyRound } from 'lucide-react'
-import { cn } from '../lib/utils'
 
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
@@ -733,27 +732,47 @@ export function Settings() {
                             </div>
 
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-foreground">Consultorios (orden de prioridad)</label>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {rooms.map(r => {
-                                        const idx = servFormData.room_priority.indexOf(r.name)
-                                        const sel = idx >= 0
-                                        return (
+                                <label className="text-sm font-medium text-foreground">Consultorios donde se da</label>
+
+                                {/* Elegidos, en orden de prioridad (de izq. a der.) */}
+                                {servFormData.room_priority.length > 0 ? (
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        {servFormData.room_priority.map((name, i) => (
+                                            <button
+                                                key={name}
+                                                type="button"
+                                                onClick={() => toggleServRoom(name)}
+                                                title="Quitar"
+                                                className="px-2.5 py-1 rounded-full text-xs font-medium border bg-primary/10 text-primary border-primary/30 inline-flex items-center gap-1.5 cursor-pointer"
+                                            >
+                                                <span className="font-bold">{i + 1}.</span>
+                                                {name.replace('Consultorio ', 'Consul ')}
+                                                <X className="w-3 h-3 opacity-70" />
+                                            </button>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-xs text-muted-foreground italic">Cualquiera — el sistema asigna el primer consultorio que esté libre.</p>
+                                )}
+
+                                {/* Disponibles para agregar */}
+                                {rooms.filter(r => !servFormData.room_priority.includes(r.name)).length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                        <span className="text-xs text-muted-foreground">Agregar:</span>
+                                        {rooms.filter(r => !servFormData.room_priority.includes(r.name)).map(r => (
                                             <button
                                                 key={r.id}
                                                 type="button"
                                                 onClick={() => toggleServRoom(r.name)}
-                                                className={cn(
-                                                    "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors cursor-pointer",
-                                                    sel ? "bg-primary/10 text-primary border-primary/30" : "bg-background text-muted-foreground border-border hover:border-primary/40"
-                                                )}
+                                                className="px-2.5 py-1 rounded-full text-xs font-medium border bg-background text-muted-foreground border-border hover:border-primary/40 cursor-pointer"
                                             >
-                                                {r.name.replace('Consultorio ', 'Consul ')}{sel ? ` (${idx + 1})` : ''}
+                                                + {r.name.replace('Consultorio ', 'Consul ')}
                                             </button>
-                                        )
-                                    })}
-                                </div>
-                                <p className="text-xs text-muted-foreground">El sistema asigna el primer consultorio libre de esta lista, en orden. Vacío = cualquiera.</p>
+                                        ))}
+                                    </div>
+                                )}
+
+                                <p className="text-xs text-muted-foreground">El bot agenda en el primero que esté libre, en este orden (el <span className="font-medium text-foreground">1.</span> es el preferido). Tocá un consultorio elegido para quitarlo.</p>
                             </div>
 
                             <div className="pt-2 flex items-center justify-between border-t border-border/50">
