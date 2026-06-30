@@ -199,7 +199,7 @@ function AppointmentEvent({ event }: { event: any }) {
             const progress = cuponera
                 ? (isMonthly
                     ? ` ${monthsProgress(cuponera.start_date, cuponera.total_months).transcurridos}/${cuponera.total_months}m`
-                    : ` ${cuponera.used_sessions}/${cuponera.total_sessions}`)
+                    : ` ${event.raw.cuponeraSessionNumber ?? cuponera.used_sessions}/${cuponera.total_sessions}`)
                 : '';
             if (cuponera && cuponera.is_paid === false) {
                 return { status: 'impago' as const, label: `Falta Pagar (${tag}${progress})` };
@@ -235,7 +235,7 @@ function AppointmentEvent({ event }: { event: any }) {
             cuponeraProgress: event.raw.cuponera
                 ? (event.raw.cuponera.cuponera_type === 'months'
                     ? `Mes ${monthsProgress(event.raw.cuponera.start_date, event.raw.cuponera.total_months).transcurridos} de ${event.raw.cuponera.total_months}`
-                    : `Sesión ${event.raw.cuponera.used_sessions} de ${event.raw.cuponera.total_sessions}`)
+                    : `Sesión ${event.raw.cuponeraSessionNumber ?? event.raw.cuponera.used_sessions} de ${event.raw.cuponera.total_sessions}`)
                 : undefined,
         })
     }, [isTouch, names, service, professional, event.status, event.start, event.end, event.raw.app?.notes, getPaymentStatusInfo])
@@ -344,7 +344,7 @@ function AppointmentEvent({ event }: { event: any }) {
                 {event.raw.cuponera && (
                     event.raw.cuponera.cuponera_type === 'months'
                         ? ` (Mes ${monthsProgress(event.raw.cuponera.start_date, event.raw.cuponera.total_months).transcurridos}/${event.raw.cuponera.total_months})`
-                        : ` (${event.raw.cuponera.used_sessions}/${event.raw.cuponera.total_sessions})`
+                        : ` (${event.raw.cuponeraSessionNumber ?? event.raw.cuponera.used_sessions}/${event.raw.cuponera.total_sessions})`
                 )}
             </span>
             <span className="text-[10px] truncate opacity-75">
@@ -577,6 +577,24 @@ export function Appointments() {
             `)
 
         if (appts) {
+            // Número de sesión propio de cada turno dentro de su cuponera (por sesiones):
+            // se ordenan cronológicamente y se numeran, así cada turno mantiene SU sesión
+            // (el del lunes 10/12, el de hoy 11/12) y no se sobrescriben con el used_sessions actual.
+            const sessionNumberByAppt: Record<string, number> = {}
+            const byCuponera: Record<string, any[]> = {}
+            appts.forEach(a => {
+                const cup = Array.isArray(a.cuponeras) ? a.cuponeras[0] : a.cuponeras
+                if (cup && cup.id && cup.cuponera_type !== 'months' && a.status !== 'cancelado') {
+                    if (!byCuponera[cup.id]) byCuponera[cup.id] = []
+                    byCuponera[cup.id].push(a)
+                }
+            })
+            Object.values(byCuponera).forEach(list => {
+                list
+                    .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+                    .forEach((a, i) => { sessionNumberByAppt[a.id] = i + 1 })
+            })
+
             const formatted = appts.map(app => {
                 // Lista de pacientes desde la tabla de unión
                 const apRows: any[] = Array.isArray(app.appointment_patients) ? app.appointment_patients : []
@@ -603,7 +621,7 @@ export function Appointments() {
                     end: new Date(app.end_time),
                     status: app.status,
                     resourceId: app.room_id,
-                    raw: { app, patientList, patient: patientList[0] ?? null, service, professional, room, cuponera },
+                    raw: { app, patientList, patient: patientList[0] ?? null, service, professional, room, cuponera, cuponeraSessionNumber: sessionNumberByAppt[app.id] },
                 }
             })
             setEvents(formatted)
