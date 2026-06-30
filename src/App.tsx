@@ -9,6 +9,7 @@ import { Appointments } from './pages/Appointments'
 import { Patients } from './pages/Patients'
 import { PatientDetails } from './pages/Patients/PatientDetails'
 import { Coupons } from './pages/Coupons'
+import { GiftCards } from './pages/GiftCards'
 import { Settings } from './pages/Settings'
 import { Logs } from './pages/Logs'
 import { PriceList } from './pages/PriceList'
@@ -36,6 +37,7 @@ function App() {
                                     <Route path=":id" element={<PatientDetails />} />
                                 </Route>
                                 <Route path="coupons" element={<Coupons />} />
+                                <Route path="gift-cards" element={<GiftCards />} />
                                 <Route path="logs" element={<Logs />} />
                                 <Route path="prices" element={<PriceList />} />
                                 <Route path="blog" element={<Blog />} />
