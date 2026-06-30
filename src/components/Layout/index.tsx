@@ -39,8 +39,10 @@ export function Layout() {
         { name: 'Pacientes', href: '/patients', icon: Users },
         { name: 'Cuponeras', href: '/coupons', icon: Ticket },
         { name: 'Gift Cards', href: '/gift-cards', icon: Gift },
-        { name: 'Métricas', href: '/metrics', icon: BarChart3 },
-        { name: 'Contabilidad', href: '/accounting', icon: Wallet },
+        ...(isAdmin ? [
+            { name: 'Métricas', href: '/metrics', icon: BarChart3 },
+            { name: 'Contabilidad', href: '/accounting', icon: Wallet },
+        ] : []),
         { name: 'Actividad', href: '/logs', icon: Activity },
         { name: 'Precios', href: '/prices', icon: DollarSign, beta: true },
         { name: 'Blog', href: '/blog', icon: StickyNote, beta: true },

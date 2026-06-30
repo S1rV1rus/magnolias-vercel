@@ -42,11 +42,11 @@ function App() {
                                 <Route path="prices" element={<PriceList />} />
                                 <Route path="blog" element={<Blog />} />
                                 <Route path="stock" element={<Stock />} />
-                                <Route path="metrics" element={<Metrics />} />
-                                <Route path="accounting" element={<Accounting />} />
 
-                                {/* Admin-only route */}
+                                {/* Admin-only routes (Pilar) */}
                                 <Route element={<ProtectedRoute adminOnly />}>
+                                    <Route path="metrics" element={<Metrics />} />
+                                    <Route path="accounting" element={<Accounting />} />
                                     <Route path="settings" element={<Settings />} />
                                 </Route>
                             </Route>
