@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { Plus, Trash2, Edit2, ShieldAlert, Check, Sparkles, X, KeyRound } from 'lucide-react'
+import { cn } from '../lib/utils'
 
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
@@ -25,6 +26,7 @@ export interface Service {
     price: number | string | null;
     type: string;
     is_active: boolean;
+    room_priority: string[] | null;
 }
 
 export function Settings() {
@@ -49,6 +51,7 @@ export function Settings() {
 
     // Services State
     const [services, setServices] = useState<Service[]>([])
+    const [rooms, setRooms] = useState<{ id: string; name: string }[]>([])
     const [loadingServ, setLoadingServ] = useState(true)
     const [isServModalOpen, setIsServModalOpen] = useState(false)
     const [editingServId, setEditingServId] = useState<string | null>(null)
@@ -58,6 +61,7 @@ export function Settings() {
         duration_minutes: 60,
         price: '',
         type: 'simple',
+        room_priority: [] as string[],
         is_active: true
     })
 
@@ -219,6 +223,8 @@ export function Settings() {
         setLoadingServ(true)
         const { data } = await supabase.from('services').select('*').order('name')
         if (data) setServices(data)
+        const { data: rData } = await supabase.from('rooms').select('id, name').eq('is_active', true).order('name')
+        if (rData) setRooms(rData)
         setLoadingServ(false)
     }
 
@@ -239,6 +245,7 @@ export function Settings() {
                 duration_minutes: serv.duration_minutes || 60,
                 price: serv.price != null ? String(serv.price) : '',
                 type: serv.type || 'simple',
+                room_priority: serv.room_priority || [],
                 is_active: serv.is_active
             })
         } else {
@@ -249,6 +256,7 @@ export function Settings() {
                 duration_minutes: 60,
                 price: '',
                 type: 'simple',
+                room_priority: [],
                 is_active: true
             })
         }
@@ -260,7 +268,8 @@ export function Settings() {
         const payload = {
             ...servFormData,
             price: servFormData.price ? parseFloat(String(servFormData.price)) : null,
-            duration_minutes: parseInt(String(servFormData.duration_minutes)) || 60
+            duration_minutes: parseInt(String(servFormData.duration_minutes)) || 60,
+            room_priority: servFormData.room_priority.length ? servFormData.room_priority : null
         }
 
         if (editingServId) {
@@ -286,6 +295,15 @@ export function Settings() {
         const { error } = await supabase.from('services').update({ is_active: !currentStatus }).eq('id', id)
         if (error) console.error('Error toggling status:', error)
         fetchServices()
+    }
+
+    const toggleServRoom = (name: string) => {
+        setServFormData(f => ({
+            ...f,
+            room_priority: f.room_priority.includes(name)
+                ? f.room_priority.filter(x => x !== name)
+                : [...f.room_priority, name]
+        }))
     }
 
     return (
@@ -441,6 +459,14 @@ export function Settings() {
                                             <div className="flex items-center justify-between text-sm">
                                                 <span className="text-muted-foreground">Tipo:</span>
                                                 <span className="text-foreground capitalize">{serv.type}</span>
+                                            </div>
+                                            <div className="flex items-center justify-between text-sm gap-2">
+                                                <span className="text-muted-foreground shrink-0">Consultorios:</span>
+                                                <span className="text-foreground text-right">
+                                                    {serv.room_priority && serv.room_priority.length
+                                                        ? serv.room_priority.map(r => r.replace('Consultorio ', '')).join(' › ')
+                                                        : 'Cualquiera'}
+                                                </span>
                                             </div>
                                         </div>
                                     </div>
@@ -704,6 +730,30 @@ export function Settings() {
                                     <option value="simple">Simple (Asignable directo a agenda generica)</option>
                                     <option value="complejo">Complejo (Requiere aparatología o box especial)</option>
                                 </select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-foreground">Consultorios (orden de prioridad)</label>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {rooms.map(r => {
+                                        const idx = servFormData.room_priority.indexOf(r.name)
+                                        const sel = idx >= 0
+                                        return (
+                                            <button
+                                                key={r.id}
+                                                type="button"
+                                                onClick={() => toggleServRoom(r.name)}
+                                                className={cn(
+                                                    "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors cursor-pointer",
+                                                    sel ? "bg-primary/10 text-primary border-primary/30" : "bg-background text-muted-foreground border-border hover:border-primary/40"
+                                                )}
+                                            >
+                                                {r.name.replace('Consultorio ', 'Consul ')}{sel ? ` (${idx + 1})` : ''}
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                                <p className="text-xs text-muted-foreground">El sistema asigna el primer consultorio libre de esta lista, en orden. Vacío = cualquiera.</p>
                             </div>
 
                             <div className="pt-2 flex items-center justify-between border-t border-border/50">
