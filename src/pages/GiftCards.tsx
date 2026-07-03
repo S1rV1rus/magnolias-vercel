@@ -89,6 +89,7 @@ function genCode() {
 
 const initialForm = {
     patient_id: '',
+    recipient_name: '',
     service_id: '',
     amount: '',
     currency: 'UYU' as 'UYU' | 'USD',
@@ -150,6 +151,7 @@ export function GiftCards() {
         const payload: Record<string, any> = {
             code: formData.code.trim(),
             patient_id: formData.patient_id || null,
+            recipient_name: formData.recipient_name.trim() || null,
             service_id: formData.service_id || null,
             amount: formData.amount ? parseFloat(formData.amount) : null,
             currency: formData.currency,
@@ -178,6 +180,7 @@ export function GiftCards() {
         setEditingId(c.id)
         setFormData({
             patient_id: c.patient_id || '',
+            recipient_name: c.recipient_name || '',
             service_id: c.service_id || '',
             amount: c.amount?.toString() || '',
             currency: c.currency === 'USD' ? 'USD' : 'UYU',
@@ -222,7 +225,7 @@ export function GiftCards() {
         if (statusFilter !== 'todas' && c.status !== statusFilter) return false
         if (!searchQuery.trim()) return true
         const patient = Array.isArray(c.patients) ? c.patients[0] : c.patients
-        const haystack = normalize(`${c.code} ${patient?.first_name || ''} ${patient?.last_name || ''} ${patient?.document_id || ''}`)
+        const haystack = normalize(`${c.code} ${patient?.first_name || ''} ${patient?.last_name || ''} ${patient?.document_id || ''} ${c.recipient_name || ''}`)
         return normalize(searchQuery).split(' ').filter(Boolean).every(t => haystack.includes(t))
     })
 
@@ -305,6 +308,9 @@ export function GiftCards() {
                                                 <span className="text-foreground">{patient.first_name} {patient.last_name}</span>
                                             ) : (
                                                 <span className="text-xs text-muted-foreground italic">Sin asignar</span>
+                                            )}
+                                            {c.recipient_name && (
+                                                <div className="text-xs text-muted-foreground">para: {c.recipient_name}</div>
                                             )}
                                         </td>
                                         <td className="px-6 py-4">
@@ -389,9 +395,23 @@ export function GiftCards() {
 
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-foreground flex justify-between">
-                                    Paciente <span className="text-xs text-muted-foreground font-normal">(quien la usa, opcional)</span>
+                                    Paciente que la compra <span className="text-xs text-muted-foreground font-normal">(quien regala, opcional)</span>
                                 </label>
                                 <PatientSearchInput patients={patients} value={formData.patient_id} onChange={(id) => setFormData(f => ({ ...f, patient_id: id }))} />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-foreground flex justify-between">
+                                    Quién la recibe <span className="text-xs text-muted-foreground font-normal">(nombre, opcional)</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                    placeholder="Nombre de la persona que recibe el regalo"
+                                    value={formData.recipient_name}
+                                    onChange={e => setFormData({ ...formData, recipient_name: e.target.value })}
+                                />
+                                <p className="text-xs text-muted-foreground">Suele ser alguien que todavía no es paciente.</p>
                             </div>
 
                             <div className="space-y-2">
