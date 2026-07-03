@@ -235,7 +235,7 @@ function AppointmentEvent({ event }: { event: any }) {
             cuponeraProgress: event.raw.cuponera
                 ? (event.raw.cuponera.cuponera_type === 'months'
                     ? `Mes ${monthsProgress(event.raw.cuponera.start_date, event.raw.cuponera.total_months).transcurridos} de ${event.raw.cuponera.total_months}`
-                    : `Sesión ${event.raw.cuponeraSessionNumber ?? event.raw.cuponera.used_sessions} de ${event.raw.cuponera.total_sessions}`)
+                    : `Sesión ${event.raw.cuponeraSessionNumber ?? event.raw.cuponera.used_sessions} de ${event.raw.cuponera.total_sessions}${event.raw.cuponeraSessionProjected ? ' (a confirmar)' : ''}`)
                 : undefined,
         })
     }, [isTouch, names, service, professional, event.status, event.start, event.end, event.raw.app?.notes, getPaymentStatusInfo])
@@ -568,7 +568,7 @@ export function Appointments() {
         const { data: appts } = await supabase
             .from('appointments')
             .select(`
-                id, start_time, end_time, status, room_id, cuponera_id, notes, is_unpaid,
+                id, start_time, end_time, status, room_id, cuponera_id, notes, is_unpaid, cuponera_session_index,
                 appointment_patients(patients(id, first_name, last_name)),
                 services(id, name, duration_minutes),
                 professionals(id, first_name, last_name, color),
@@ -577,10 +577,11 @@ export function Appointments() {
             `)
 
         if (appts) {
-            // Número de sesión propio de cada turno dentro de su cuponera (por sesiones):
-            // se ordenan cronológicamente y se numeran, así cada turno mantiene SU sesión
-            // (el del lunes 10/12, el de hoy 11/12) y no se sobrescriben con el used_sessions actual.
-            const sessionNumberByAppt: Record<string, number> = {}
+            // Número de sesión REAL por turno (cuponeras por sesiones):
+            // - turno consumido (confirmado/cancelado_tarde): usa el índice sellado en DB.
+            // - turno pendiente: se PROYECTA sobre used_sessions (ej. used=5 → próximos 6, 7…),
+            //   marcado como "a confirmar"; al confirmarlo se sella el número real.
+            const sessionInfoByAppt: Record<string, { number: number; projected: boolean }> = {}
             const byCuponera: Record<string, any[]> = {}
             appts.forEach(a => {
                 const cup = Array.isArray(a.cuponeras) ? a.cuponeras[0] : a.cuponeras
@@ -590,9 +591,19 @@ export function Appointments() {
                 }
             })
             Object.values(byCuponera).forEach(list => {
+                const cup = Array.isArray(list[0].cuponeras) ? list[0].cuponeras[0] : list[0].cuponeras
+                const used = cup?.used_sessions ?? 0
+                // consumidos con índice sellado
+                list.forEach(a => {
+                    if (a.cuponera_session_index != null) {
+                        sessionInfoByAppt[a.id] = { number: a.cuponera_session_index, projected: false }
+                    }
+                })
+                // pendientes (sin índice): proyectar en orden cronológico a partir de used_sessions
                 list
+                    .filter(a => a.cuponera_session_index == null)
                     .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
-                    .forEach((a, i) => { sessionNumberByAppt[a.id] = i + 1 })
+                    .forEach((a, i) => { sessionInfoByAppt[a.id] = { number: used + i + 1, projected: true } })
             })
 
             const formatted = appts.map(app => {
@@ -621,7 +632,7 @@ export function Appointments() {
                     end: new Date(app.end_time),
                     status: app.status,
                     resourceId: app.room_id,
-                    raw: { app, patientList, patient: patientList[0] ?? null, service, professional, room, cuponera, cuponeraSessionNumber: sessionNumberByAppt[app.id] },
+                    raw: { app, patientList, patient: patientList[0] ?? null, service, professional, room, cuponera, cuponeraSessionNumber: sessionInfoByAppt[app.id]?.number, cuponeraSessionProjected: sessionInfoByAppt[app.id]?.projected ?? false },
                 }
             })
             setEvents(formatted)
@@ -765,6 +776,11 @@ export function Appointments() {
                         used_sessions: newUsed,
                         is_active: isNowActive
                     }).eq('id', cuponera.id)
+
+                    // Sella (o libera) el número de sesión que consumió ESTE turno
+                    await supabase.from('appointments').update({
+                        cuponera_session_index: isNowConsumed ? newUsed : null
+                    }).eq('id', selectedEvent.id)
                 }
 
                 // Log only if status actually changed
@@ -902,6 +918,11 @@ export function Appointments() {
                     used_sessions: newUsed,
                     is_active: isNowActive
                 }).eq('id', activeCuponera.id)
+
+                // Sella el número de sesión que consumió este turno nuevo
+                await supabase.from('appointments').update({
+                    cuponera_session_index: newUsed
+                }).eq('id', newAppt.id)
             }
 
             setIsModalOpen(false)
@@ -932,6 +953,21 @@ export function Appointments() {
                     used_sessions: newUsed,
                     is_active: true
                 }).eq('id', raw.cuponera.id)
+
+                // Reacomodar índices: los turnos con sesión posterior a la borrada bajan 1
+                // (evita huecos y mantiene el número más alto = used_sessions)
+                const deletedIdx = raw.app?.cuponera_session_index
+                if (deletedIdx != null) {
+                    const { data: laterAppts } = await supabase.from('appointments')
+                        .select('id, cuponera_session_index')
+                        .eq('cuponera_id', raw.cuponera.id)
+                        .gt('cuponera_session_index', deletedIdx)
+                    for (const la of laterAppts ?? []) {
+                        await supabase.from('appointments')
+                            .update({ cuponera_session_index: (la.cuponera_session_index as number) - 1 })
+                            .eq('id', la.id)
+                    }
+                }
             }
 
             await writeLog({
@@ -1073,7 +1109,14 @@ export function Appointments() {
                                                             const mp = monthsProgress(activeCuponera.start_date, activeCuponera.total_months)
                                                             return `Pase mensual · Mes ${mp.transcurridos} de ${activeCuponera.total_months}${mp.vence ? ` · vence ${mp.vence.toLocaleDateString('es-UY')}` : ''}`
                                                         })()
-                                                        : `Progreso: ${activeCuponera.used_sessions} de ${activeCuponera.total_sessions} sesiones usadas.`}
+                                                        : (() => {
+                                                            const turnoN = selectedEvent?.raw?.cuponeraSessionNumber
+                                                            const proj = selectedEvent?.raw?.cuponeraSessionProjected
+                                                            const base = `${activeCuponera.used_sessions} de ${activeCuponera.total_sessions} usadas`
+                                                            return turnoN
+                                                                ? `Este turno: sesión ${turnoN}${proj ? ' (a confirmar)' : ''} · ${base} en total`
+                                                                : `Progreso: ${base}.`
+                                                        })()}
                                                 </p>
                                             </div>
                                         </div>
@@ -1288,7 +1331,14 @@ export function Appointments() {
                                                             const mp = monthsProgress(activeCuponera.start_date, activeCuponera.total_months)
                                                             return `Pase mensual · Mes ${mp.transcurridos} de ${activeCuponera.total_months}${mp.vence ? ` · vence ${mp.vence.toLocaleDateString('es-UY')}` : ''}`
                                                         })()
-                                                        : `Progreso: ${activeCuponera.used_sessions} de ${activeCuponera.total_sessions} sesiones usadas.`}
+                                                        : (() => {
+                                                            const turnoN = selectedEvent?.raw?.cuponeraSessionNumber
+                                                            const proj = selectedEvent?.raw?.cuponeraSessionProjected
+                                                            const base = `${activeCuponera.used_sessions} de ${activeCuponera.total_sessions} usadas`
+                                                            return turnoN
+                                                                ? `Este turno: sesión ${turnoN}${proj ? ' (a confirmar)' : ''} · ${base} en total`
+                                                                : `Progreso: ${base}.`
+                                                        })()}
                                                 </p>
                                             </div>
                                         </div>
