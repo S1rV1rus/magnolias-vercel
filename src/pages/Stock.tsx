@@ -18,6 +18,7 @@ interface StockItem {
     unit: string
     description: string | null
     min_quantity: number
+    is_active: boolean
 }
 
 interface StockTransaction {
@@ -46,7 +47,6 @@ const emptyItemForm = {
 const emptyTransactionForm = {
     type: 'usage' as 'addition' | 'usage',
     quantity: 1 as number | string,
-    user_name: '',
     note: ''
 }
 
@@ -91,6 +91,7 @@ export function Stock() {
             const { data: itemsData, error: itemsError } = await supabase
                 .from('stock_items')
                 .select('*')
+                .eq('is_active', true)
                 .order('name', { ascending: true })
             
             if (itemsError) throw itemsError
@@ -200,16 +201,16 @@ export function Stock() {
         setItemModalOpen(true)
     }
 
-    // Handles item deletion
+    // Archives an item (logical delete): it leaves the inventory but its history is preserved
     async function handleDeleteItem(id: string) {
         try {
             const { error } = await supabase
                 .from('stock_items')
-                .delete()
+                .update({ is_active: false })
                 .eq('id', id)
 
             if (error) throw error
-            triggerSuccess('Insumo eliminado del inventario')
+            triggerSuccess('Insumo archivado. Su historial de movimientos se conservó.')
             setConfirmDelete(null)
             void fetchData()
         } catch (error) {
@@ -224,7 +225,6 @@ export function Stock() {
         setTransactionForm({
             type,
             quantity: 1,
-            user_name: defaultStaffName,
             note: ''
         })
         setTransactionModalOpen(true)
@@ -262,7 +262,7 @@ export function Stock() {
                     type: transactionForm.type,
                     quantity: Number(transactionForm.quantity),
                     user_id: currentUserId,
-                    user_name: transactionForm.user_name.trim() || defaultStaffName,
+                    user_name: defaultStaffName,
                     note: transactionForm.note.trim() || null
                 })
 
@@ -536,7 +536,7 @@ export function Stock() {
                                                     <button
                                                         onClick={() => setConfirmDelete(item.id)}
                                                         className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors cursor-pointer"
-                                                        title="Eliminar Insumo"
+                                                        title="Archivar Insumo"
                                                     >
                                                         <Trash2 className="w-3.5 h-3.5" />
                                                     </button>
@@ -863,17 +863,17 @@ export function Stock() {
                                     />
                                 </div>
 
-                                {/* Operator/Staff Name */}
+                                {/* Operator/Staff Name — automatic, taken from the logged-in user */}
                                 <div>
-                                    <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Personal Responsable *</label>
+                                    <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Personal Responsable</label>
                                     <input
                                         type="text"
-                                        required
-                                        placeholder="Nombre de quien realiza el movimiento"
-                                        value={transactionForm.user_name}
-                                        onChange={e => setTransactionForm(prev => ({ ...prev, user_name: e.target.value }))}
-                                        className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                        readOnly
+                                        disabled
+                                        value={defaultStaffName}
+                                        className="w-full bg-muted/40 border border-input rounded-lg px-3 py-2 text-sm text-muted-foreground cursor-not-allowed outline-none"
                                     />
+                                    <p className="text-[11px] text-muted-foreground mt-1">Se registra automáticamente con tu usuario.</p>
                                 </div>
 
                                 {/* Note */}
@@ -1019,9 +1019,9 @@ export function Stock() {
                                 <AlertTriangle className="w-6 h-6" />
                             </div>
                             <div>
-                                <h3 className="text-lg font-bold text-foreground">¿Eliminar Insumo?</h3>
+                                <h3 className="text-lg font-bold text-foreground">¿Archivar Insumo?</h3>
                                 <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
-                                    Esta acción eliminará el insumo del inventario de forma permanente junto con todo su historial de movimientos. Esta acción no se puede deshacer.
+                                    El insumo dejará de aparecer en el inventario, pero su historial de movimientos se conserva para mantener la trazabilidad.
                                 </p>
                             </div>
                         </div>
@@ -1036,7 +1036,7 @@ export function Stock() {
                                 onClick={() => handleDeleteItem(confirmDelete)}
                                 className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-semibold shadow-sm transition-all cursor-pointer"
                             >
-                                Sí, Eliminar
+                                Sí, Archivar
                             </button>
                         </div>
                     </div>
