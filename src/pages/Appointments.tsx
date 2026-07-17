@@ -238,7 +238,7 @@ function AppointmentEvent({ event }: { event: any }) {
                     : `Sesión ${event.raw.cuponeraSessionNumber ?? event.raw.cuponera.used_sessions} de ${event.raw.cuponera.total_sessions}${event.raw.cuponeraSessionProjected ? ' (a confirmar)' : ''}`)
                 : undefined,
         })
-    }, [isTouch, names, service, professional, event.status, event.start, event.end, event.raw.app?.notes, getPaymentStatusInfo])
+    }, [isTouch, names, service, professional, event.status, event.start, event.end, event.raw.app?.notes, event.raw.cuponera, event.raw.cuponeraSessionNumber, event.raw.cuponeraSessionProjected, getPaymentStatusInfo])
 
     const handleMouseLeave = useCallback(() => {
         if (isTouch) return

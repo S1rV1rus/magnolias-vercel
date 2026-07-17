@@ -115,7 +115,7 @@ export function Stock() {
 
     useEffect(() => {
         void fetchData()
-    }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [])
 
     // Show temporary success messages
     function triggerSuccess(msg: string) {

@@ -50,7 +50,7 @@ export function Layout() {
         ...(isAdmin ? [{ name: 'Configuración', href: '/settings', icon: Settings }] : []),
     ]
 
-    const SidebarContent = () => (
+    const sidebarContent = (
         <>
             <div className="flex h-16 shrink-0 items-center px-6 border-b border-border">
                 <span className="text-xl font-bold tracking-tight text-primary">Clínica Magnolias</span>
@@ -111,7 +111,7 @@ export function Layout() {
         <div className="flex h-[100dvh] bg-background text-foreground">
             {/* Desktop Sidebar */}
             <div className="w-64 border-r border-border bg-card flex-col hidden md:flex">
-                <SidebarContent />
+                {sidebarContent}
             </div>
 
             {/* Mobile Overlay */}
