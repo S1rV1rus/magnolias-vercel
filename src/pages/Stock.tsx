@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { 
     Package, Plus, Pencil, Trash2, X, AlertTriangle, 
     ArrowUpRight, ArrowDownRight, History, Search, Filter, 
-    RefreshCw, User, Calendar, FileText, CheckCircle2 
+    RefreshCw, User, Calendar, FileText, CheckCircle2, Tag
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { format } from 'date-fns'
@@ -19,6 +19,7 @@ interface StockItem {
     description: string | null
     min_quantity: number
     is_active: boolean
+    label: string | null
 }
 
 interface StockTransaction {
@@ -40,6 +41,7 @@ const emptyItemForm = {
     name: '',
     unit: 'unidades',
     description: '',
+    label: '',
     min_quantity: 0 as number | string,
     initial_stock: 0 as number | string
 }
@@ -55,11 +57,19 @@ export function Stock() {
     const [items, setItems] = useState<StockItem[]>([])
     const [transactions, setTransactions] = useState<StockTransaction[]>([])
     const [loading, setLoading] = useState(true)
-    const [activeTab, setActiveTab] = useState<'inventory' | 'history'>('inventory')
+    const [activeTab, setActiveTab] = useState<'inventory' | 'history' | 'by_label'>('inventory')
     
     // Search and filter states
     const [searchQuery, setSearchQuery] = useState('')
     const [filterMode, setFilterMode] = useState<'all' | 'low_stock'>('all')
+    const [labelFilter, setLabelFilter] = useState<string>('all')
+
+    // Period for the consumption-per-label report (defaults to the current month)
+    const [rangeFrom, setRangeFrom] = useState(() => {
+        const d = new Date()
+        return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10)
+    })
+    const [rangeTo, setRangeTo] = useState(() => new Date().toISOString().slice(0, 10))
     
     // Modal states
     const [itemModalOpen, setItemModalOpen] = useState(false)
@@ -138,6 +148,7 @@ export function Stock() {
                         name: itemForm.name.trim(),
                         unit: itemForm.unit.trim(),
                         description: itemForm.description.trim() || null,
+                        label: itemForm.label.trim() || null,
                         min_quantity: Number(itemForm.min_quantity)
                     })
                     .eq('id', editingItem.id)
@@ -152,6 +163,7 @@ export function Stock() {
                         name: itemForm.name.trim(),
                         unit: itemForm.unit.trim(),
                         description: itemForm.description.trim() || null,
+                        label: itemForm.label.trim() || null,
                         min_quantity: Number(itemForm.min_quantity),
                         quantity: Number(itemForm.initial_stock)
                     })
@@ -195,6 +207,7 @@ export function Stock() {
             name: item.name,
             unit: item.unit,
             description: item.description || '',
+            label: item.label || '',
             min_quantity: item.min_quantity,
             initial_stock: item.quantity // Locked or just visual for edit
         })
@@ -309,15 +322,57 @@ export function Stock() {
         }
     }
 
-    // Filter items based on search and selected filter mode
+    // Every label already in use, to offer them when creating/editing an item
+    const existingLabels = Array.from(
+        new Set(items.map(i => i.label).filter((l): l is string => !!l && l.trim() !== ''))
+    ).sort((a, b) => a.localeCompare(b, 'es'))
+
+    // Filter items based on search, stock level and label
     const filteredItems = items.filter(item => {
         const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            (item.description && item.description.toLowerCase().includes(searchQuery.toLowerCase()))
-        
+            (item.description && item.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
+            (item.label && item.label.toLowerCase().includes(searchQuery.toLowerCase()))
+
         const matchesFilter = filterMode === 'all' || (item.quantity <= item.min_quantity)
-        
-        return matchesSearch && matchesFilter
+
+        const matchesLabel = labelFilter === 'all'
+            || (labelFilter === 'none' ? !item.label : item.label === labelFilter)
+
+        return matchesSearch && matchesFilter && matchesLabel
     })
+
+    // Consumption per label within the selected period, to settle the
+    // percentage agreements with each professional
+    const usageByLabel = (() => {
+        const from = rangeFrom ? new Date(rangeFrom + 'T00:00:00') : null
+        const to = rangeTo ? new Date(rangeTo + 'T23:59:59') : null
+        const labelOf = new Map(items.map(i => [i.id, i.label]))
+
+        const acc = new Map<string, { label: string; total: number; detail: Map<string, { name: string; unit: string; qty: number }> }>()
+
+        for (const tx of transactions) {
+            if (tx.type !== 'usage') continue
+            const when = new Date(tx.created_at)
+            if (from && when < from) continue
+            if (to && when > to) continue
+
+            const label = labelOf.get(tx.item_id) || 'Sin rótulo'
+            const itemName = tx.stock_items?.name || 'Insumo archivado'
+            const unit = tx.stock_items?.unit || 'unidades'
+
+            if (!acc.has(label)) acc.set(label, { label, total: 0, detail: new Map() })
+            const entry = acc.get(label)!
+            entry.total += Number(tx.quantity)
+
+            const prev = entry.detail.get(tx.item_id)
+            if (prev) prev.qty += Number(tx.quantity)
+            else entry.detail.set(tx.item_id, { name: itemName, unit, qty: Number(tx.quantity) })
+        }
+
+        return Array.from(acc.values())
+            .map(e => ({ ...e, detail: Array.from(e.detail.values()).sort((a, b) => b.qty - a.qty) }))
+            .sort((a, b) => b.total - a.total)
+    })()
 
     // Compute stats
     const totalItems = items.length
@@ -448,10 +503,21 @@ export function Stock() {
                 >
                     Historial de Movimientos General
                 </button>
+                <button
+                    onClick={() => setActiveTab('by_label')}
+                    className={cn(
+                        "pb-3 text-sm font-semibold border-b-2 transition-all cursor-pointer",
+                        activeTab === 'by_label'
+                            ? "border-primary text-primary"
+                            : "border-transparent text-muted-foreground hover:text-foreground"
+                    )}
+                >
+                    Consumo por Rótulo
+                </button>
             </div>
 
             {/* TAB CONTENTS */}
-            {activeTab === 'inventory' ? (
+            {activeTab === 'inventory' && (
                 <div className="flex flex-col gap-5">
                     {/* Search & Filter bar */}
                     <div className="flex flex-col md:flex-row gap-3 justify-between">
@@ -466,6 +532,17 @@ export function Stock() {
                             />
                         </div>
                         <div className="flex gap-2">
+                            {existingLabels.length > 0 && (
+                                <select
+                                    value={labelFilter}
+                                    onChange={e => setLabelFilter(e.target.value)}
+                                    className="bg-background border border-input rounded-lg px-3 py-2 text-xs font-semibold text-foreground focus:ring-1 focus:ring-primary outline-none cursor-pointer"
+                                >
+                                    <option value="all">Todos los rótulos</option>
+                                    {existingLabels.map(l => <option key={l} value={l}>{l}</option>)}
+                                    <option value="none">Sin rótulo</option>
+                                </select>
+                            )}
                             <button
                                 onClick={() => setFilterMode('all')}
                                 className={cn(
@@ -543,6 +620,13 @@ export function Stock() {
                                                 </div>
                                             </div>
 
+                                            {item.label && (
+                                                <span className="inline-flex items-center gap-1 mt-2 text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary border border-primary/25 px-2 py-0.5 rounded-full">
+                                                    <Tag className="w-3 h-3" />
+                                                    {item.label}
+                                                </span>
+                                            )}
+
                                             <p className="text-xs text-muted-foreground mt-1.5 min-h-[2rem] line-clamp-2">
                                                 {item.description || 'Sin descripción o especificaciones.'}
                                             </p>
@@ -607,7 +691,9 @@ export function Stock() {
                         </div>
                     )}
                 </div>
-            ) : (
+            )}
+
+            {activeTab === 'history' && (
                 /* TAB HISTORIAL GENERAL */
                 <div className="flex flex-col gap-4">
                     {loading ? (
@@ -688,6 +774,68 @@ export function Stock() {
                 </div>
             )}
 
+            {activeTab === 'by_label' && (
+                /* TAB CONSUMO POR RÓTULO — para liquidar los acuerdos por porcentaje */
+                <div className="flex flex-col gap-4">
+                    {/* Period picker */}
+                    <div className="bg-card border border-border/60 rounded-xl p-4 flex flex-col sm:flex-row sm:items-end gap-3">
+                        <div>
+                            <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Desde</label>
+                            <input
+                                type="date"
+                                value={rangeFrom}
+                                onChange={e => setRangeFrom(e.target.value)}
+                                className="bg-background border border-input rounded-lg px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Hasta</label>
+                            <input
+                                type="date"
+                                value={rangeTo}
+                                onChange={e => setRangeTo(e.target.value)}
+                                className="bg-background border border-input rounded-lg px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                            />
+                        </div>
+                        <p className="text-xs text-muted-foreground sm:ml-auto sm:pb-2">
+                            Consumo registrado en el período, agrupado por rótulo.
+                        </p>
+                    </div>
+
+                    {usageByLabel.length === 0 ? (
+                        <div className="p-12 border border-dashed border-border/50 rounded-xl text-center text-muted-foreground text-sm bg-muted/10">
+                            No hay consumos registrados en el período seleccionado.
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            {usageByLabel.map(group => (
+                                <div key={group.label} className="bg-card border border-border/60 rounded-xl overflow-hidden shadow-sm">
+                                    <div className="p-4 bg-muted/20 border-b border-border/50 flex items-center justify-between gap-3">
+                                        <span className="text-sm font-bold text-foreground flex items-center gap-1.5 min-w-0">
+                                            <Tag className="w-4 h-4 text-primary shrink-0" />
+                                            <span className="truncate">{group.label}</span>
+                                        </span>
+                                        <span className="text-xs font-semibold text-muted-foreground shrink-0">
+                                            {group.detail.length} {group.detail.length === 1 ? 'insumo' : 'insumos'}
+                                        </span>
+                                    </div>
+                                    <div className="divide-y divide-border/40">
+                                        {group.detail.map(d => (
+                                            <div key={d.name} className="px-4 py-2.5 flex items-center justify-between gap-3 text-sm">
+                                                <span className="text-foreground truncate">{d.name}</span>
+                                                <span className="font-bold text-primary shrink-0">
+                                                    {d.qty} <span className="text-xs font-medium text-muted-foreground">{d.unit}</span>
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* ============================================== */}
             {/* MODALS */}
             {/* ============================================== */}
@@ -722,6 +870,25 @@ export function Stock() {
                                         onChange={e => setItemForm(prev => ({ ...prev, name: e.target.value }))}
                                         className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
                                     />
+                                </div>
+
+                                {/* Label: free text with suggestions from the ones already in use */}
+                                <div>
+                                    <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Rótulo</label>
+                                    <input
+                                        type="text"
+                                        list="stock-labels"
+                                        placeholder="Ej: Consultorio 1, Masajistas, Depilación..."
+                                        value={itemForm.label}
+                                        onChange={e => setItemForm(prev => ({ ...prev, label: e.target.value }))}
+                                        className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                    />
+                                    <datalist id="stock-labels">
+                                        {existingLabels.map(l => <option key={l} value={l} />)}
+                                    </datalist>
+                                    <p className="text-[11px] text-muted-foreground mt-1">
+                                        Para agrupar el insumo por profesional, consultorio o sector. Podés elegir uno existente o escribir uno nuevo.
+                                    </p>
                                 </div>
 
                                 {/* Unit */}
