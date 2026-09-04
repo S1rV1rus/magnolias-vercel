@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { ArrowLeft, Calendar, CalendarDays, FileText, CreditCard, Plus, Ticket, CheckCircle2, X, User, Pencil, Trash2, ImageIcon, ChevronLeft, ChevronRight, Play, Pause, Images, AlertCircle, ChevronDown, ChevronUp, Lock } from 'lucide-react'
 import { cn, formatMoney, monthsProgress } from '../../lib/utils'
+import { shiftCuponeraSessionIndexes } from '../../lib/cuponeras'
 import { CurrencyToggle, ZonesPicker } from '../../components/CuponeraFields'
 
 export function PatientDetails() {
@@ -179,7 +180,7 @@ export function PatientDetails() {
         const { data: aData } = await supabase
             .from('appointments')
             .select(`
-                id, start_time, end_time, status, notes, cuponera_id, is_unpaid, payment_amount, receipt_number,
+                id, start_time, end_time, status, notes, cuponera_id, is_unpaid, payment_amount, receipt_number, cuponera_session_index,
                 appointment_patients!inner(patient_id),
                 services(id, name),
                 professionals(first_name, last_name)
@@ -409,6 +410,8 @@ export function PatientDetails() {
 
         // If we are consuming a session, prefix the notes with the cuponera tag
         let finalNotes = historyForm.notes;
+        // Persisted session number of the consumed cuponera (null if no cuponera involved)
+        let consumedSessionIndex: number | null = null;
         
         // Auto-associate if the typed service matches an active session-based cuponera
         let activeCuponeraToConsume = selectedCuponeraForConsuming;
@@ -431,7 +434,8 @@ export function PatientDetails() {
             const serviceName = Array.isArray(activeCuponeraToConsume.services)
                 ? activeCuponeraToConsume.services[0]?.name
                 : activeCuponeraToConsume.services?.name;
-            const fallbackNotes = `Se consumió manualmente la sesión ${activeCuponeraToConsume.used_sessions + 1} de la cuponera asignada de ${serviceName || 'Tratamiento'}.`;
+            consumedSessionIndex = activeCuponeraToConsume.used_sessions + 1;
+            const fallbackNotes = `Se consumió manualmente la sesión ${consumedSessionIndex} de la cuponera asignada de ${serviceName || 'Tratamiento'}.`;
             finalNotes = `[CUPONERA:${activeCuponeraToConsume.id}] ${historyForm.notes.trim() || fallbackNotes}`;
         }
 
@@ -443,6 +447,7 @@ export function PatientDetails() {
                 service_type: historyForm.service_type,
                 notes: finalNotes,
                 data: historyForm.data,
+                cuponera_session_index: consumedSessionIndex,
                 created_at: createdAt
             }])
             .select('id')
@@ -574,12 +579,23 @@ export function PatientDetails() {
     const handleDeleteHistory = async () => {
         if (!selectedHistoryEntry) return
 
+        // Guardamos el canje ANTES de borrar: después la fila ya no está para consultarla
+        const deletedIdx = selectedHistoryEntry.cuponera_session_index ?? null
+        const cuponeraMatch = (selectedHistoryEntry.notes || '').match(/\[CUPONERA:([^\]]+)\]/)
+        const deletedCuponeraId = cuponeraMatch && cuponeraMatch[1] ? cuponeraMatch[1] : null
+
         const { error } = await supabase
             .from('clinical_history')
             .delete()
             .eq('id', selectedHistoryEntry.id)
 
         if (!error) {
+            // Reacomodar índices: los canjes con sesión posterior a la borrada bajan 1
+            // (evita huecos y mantiene el número más alto = used_sessions)
+            if (deletedCuponeraId && deletedIdx != null) {
+                await shiftCuponeraSessionIndexes(deletedCuponeraId, deletedIdx)
+            }
+
             setSelectedHistoryEntry(null)
             setIsEditingHistory(false)
             setConfirmDeleteHistory(false)
@@ -1269,6 +1285,7 @@ export function PatientDetails() {
                                             professional: Array.isArray(a.professionals) ? a.professionals[0] : a.professionals,
                                             note: a.notes,
                                             type: 'Turno',
+                                            sessionIndex: a.cuponera_session_index ?? null,
                                             rawEntry: null
                                         })),
                                         ...historyEntries.filter(h => h.notes && h.notes.includes(`[CUPONERA:${cup.id}]`)).map(h => ({
@@ -1277,9 +1294,16 @@ export function PatientDetails() {
                                             professional: Array.isArray(h.professionals) ? h.professionals[0] : h.professionals,
                                             note: h.notes?.replace(`[CUPONERA:${cup.id}] `, ''),
                                             type: 'Canje Manual',
+                                            sessionIndex: h.cuponera_session_index ?? null,
                                             rawEntry: h
                                         }))
-                                    ].sort((a, b) => a.date.getTime() - b.date.getTime());
+                                    ].sort((a, b) => {
+                                        // Manda el número sellado: un canje cargado con fecha retroactiva no
+                                        // tiene por qué quedar antes en la lista. Sin índice (registros viejos)
+                                        // se cae a fecha e id.
+                                        if (a.sessionIndex != null && b.sessionIndex != null) return a.sessionIndex - b.sessionIndex;
+                                        return a.date.getTime() - b.date.getTime() || a.id.localeCompare(b.id);
+                                    });
 
                                     // Calculate end date for monthly cuponeras
                                     const endDate = isMonthly && cup.start_date ? (() => {
@@ -1418,7 +1442,8 @@ export function PatientDetails() {
                                                         <p className="text-[10px] font-semibold text-muted-foreground mb-2 uppercase tracking-wider">Sesiones Consumidas ({cuponeraRedemptions.length})</p>
                                                         <div className="space-y-2 max-h-32 overflow-y-auto pr-1">
                                                             {cuponeraRedemptions.map((r, i, arr) => {
-                                                                const sessionNumber = Math.max(1, cup.used_sessions - (arr.length - 1 - i));
+                                                                // Persisted index wins; the old calculation stays as fallback for legacy records
+                                                                const sessionNumber = r.sessionIndex ?? Math.max(1, cup.used_sessions - (arr.length - 1 - i));
                                                                 return (
                                                                 <div key={r.id} className="bg-muted/50 p-2.5 rounded-md border border-border/50">
                                                                     <div className="flex justify-between items-center mb-1">

@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { writeLog } from '../lib/logger'
 import { monthsProgress } from '../lib/utils'
+import { shiftCuponeraSessionIndexes } from '../lib/cuponeras'
 
 const roundToNearest30 = (date: Date): Date => {
     const ms = 1000 * 60 * 30
@@ -778,9 +779,16 @@ export function Appointments() {
                     }).eq('id', cuponera.id)
 
                     // Sella (o libera) el número de sesión que consumió ESTE turno
+                    const prevIdx = selectedEvent.raw.app?.cuponera_session_index
                     await supabase.from('appointments').update({
                         cuponera_session_index: isNowConsumed ? newUsed : null
                     }).eq('id', selectedEvent.id)
+
+                    // Al liberar (cancelar) hay que bajar 1 a los canjes posteriores: si no,
+                    // queda un hueco y el próximo turno reusa un número que ya existe.
+                    if (!isNowConsumed && prevIdx != null) {
+                        await shiftCuponeraSessionIndexes(cuponera.id, prevIdx)
+                    }
                 }
 
                 // Log only if status actually changed
@@ -947,26 +955,19 @@ export function Appointments() {
 
         if (!error) {
             // Restore cuponera session if deleted while consumed (solo por sesiones)
-            if (raw.cuponera && raw.cuponera.cuponera_type !== 'months' && ['confirmado', 'cancelado_tarde'].includes(selectedEvent.status)) {
+            if (raw.cuponera && raw.cuponera.cuponera_type !== 'months' && ['confirmado', 'cancelado_tarde', 'completado'].includes(selectedEvent.status)) {
                 const newUsed = raw.cuponera.used_sessions - 1
                 await supabase.from('cuponeras').update({
                     used_sessions: newUsed,
                     is_active: true
                 }).eq('id', raw.cuponera.id)
 
-                // Reacomodar índices: los turnos con sesión posterior a la borrada bajan 1
-                // (evita huecos y mantiene el número más alto = used_sessions)
+                // Reacomodar índices: los canjes con sesión posterior a la borrada bajan 1
+                // (evita huecos y mantiene el número más alto = used_sessions). Turnos y canjes
+                // manuales de historia clínica comparten la secuencia, así que se tocan los dos.
                 const deletedIdx = raw.app?.cuponera_session_index
                 if (deletedIdx != null) {
-                    const { data: laterAppts } = await supabase.from('appointments')
-                        .select('id, cuponera_session_index')
-                        .eq('cuponera_id', raw.cuponera.id)
-                        .gt('cuponera_session_index', deletedIdx)
-                    for (const la of laterAppts ?? []) {
-                        await supabase.from('appointments')
-                            .update({ cuponera_session_index: (la.cuponera_session_index as number) - 1 })
-                            .eq('id', la.id)
-                    }
+                    await shiftCuponeraSessionIndexes(raw.cuponera.id, deletedIdx)
                 }
             }
 
