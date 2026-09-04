@@ -4,12 +4,13 @@ import { Calendar, dateFnsLocalizer, Views } from 'react-big-calendar'
 import type { View } from 'react-big-calendar'
 import { format, parse, startOfWeek, getDay } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { Plus, X, UserPlus, Trash2, CheckCircle2 } from 'lucide-react'
+import { Plus, X, UserPlus, Trash2, CheckCircle2, Gift } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { writeLog } from '../lib/logger'
-import { monthsProgress } from '../lib/utils'
+import { monthsProgress, formatMoney } from '../lib/utils'
 import { shiftCuponeraSessionIndexes } from '../lib/cuponeras'
+import { findGiftCardByCode, redeemGiftCard, releaseGiftCard, GIFT_CARD_CONSUMED_STATUSES, type GiftCardRow } from '../lib/giftCards'
 
 const roundToNearest30 = (date: Date): Date => {
     const ms = 1000 * 60 * 30
@@ -173,7 +174,16 @@ function AppointmentEvent({ event }: { event: any }) {
             return { status: 'pendiente' as const, label: '' };
         }
 
-        // Si la nota indica regalo, cortesía o voucher, se asume pagado/sin cargo
+        // Turno marcado explícitamente como sin cargo (regalo / cortesía)
+        if (event.raw.app?.is_gift) {
+            return {
+                status: 'pago' as const,
+                label: event.raw.app?.gift_card_id ? 'Sin cargo (Gift Card)' : 'Sin cargo',
+            };
+        }
+
+        // Fallback de lectura para los turnos históricos, anteriores al check "sin cargo":
+        // si la nota indica regalo, cortesía o voucher, se asume pagado/sin cargo
         const notes = (event.raw.app?.notes || '').toLowerCase();
         const hasSpecialPayment = 
             notes.includes('regalo') || 
@@ -214,7 +224,7 @@ function AppointmentEvent({ event }: { event: any }) {
             }
             return { status: 'pago' as const, label: 'Pagado' };
         }
-    }, [event.raw.app?.cuponera_id, event.raw.cuponera, event.raw.app?.is_unpaid, event.status, event.raw.app?.notes])
+    }, [event.raw.app?.cuponera_id, event.raw.cuponera, event.raw.app?.is_unpaid, event.status, event.raw.app?.notes, event.raw.app?.is_gift, event.raw.app?.gift_card_id])
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
         if (isTouch) return
@@ -490,6 +500,121 @@ function PatientSearchInput({
     )
 }
 
+// ─── Sin cargo + Gift Card ─────────────────────────────────────────────────────
+// Reemplaza a la vieja convención de escribir "regalo"/"voucher" en las notas: el turno se
+// marca explícitamente como sin cargo y, opcionalmente, se le vincula el código de una
+// tarjeta de regalo. La tarjeta se canjea sola cuando el turno queda confirmado.
+// Con una cuponera activa el bloque no se muestra (igual que el check de deuda): la sesión ya
+// la paga la cuponera, y marcarla sin cargo la descontaría igual y le sacaría la etiqueta
+// "Cup. 3/8" al turno en el calendario.
+
+// Una tarjeta no puede pagar dos turnos: la base tiene un índice único sobre gift_card_id y
+// rechaza el segundo turno que la intente vincular. El error crudo de Postgres no le dice nada
+// a nadie, así que acá se traduce (y devuelve null si el error es cualquier otro).
+const giftCardLinkConflictMessage = (error: { code?: string; message?: string } | null, code?: string | null) =>
+    error?.code === '23505' && (error.message ?? '').includes('gift_card_id')
+        ? `La gift card${code ? ` ${code}` : ''} ya está vinculada a otro turno y una tarjeta no puede pagar dos. El turno no se guardó: desvinculala de ese turno o usá otra.`
+        : null
+
+function GiftCardField({
+    idSuffix,
+    isGift,
+    onToggleGift,
+    code,
+    onCodeChange,
+    card,
+    message,
+    searching,
+    onSearch,
+    onUnlink,
+    serviceName,
+}: {
+    idSuffix: string
+    isGift: boolean
+    onToggleGift: (checked: boolean) => void
+    code: string
+    onCodeChange: (value: string) => void
+    card: GiftCardRow | null
+    message: string
+    searching: boolean
+    onSearch: () => void
+    onUnlink: () => void
+    serviceName: (id: string | null) => string | null
+}) {
+    return (
+        <div className="space-y-2">
+            <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-md">
+                <input
+                    type="checkbox"
+                    id={`is_gift_${idSuffix}`}
+                    checked={isGift}
+                    onChange={e => onToggleGift(e.target.checked)}
+                    className="w-4 h-4 rounded border-primary/50 text-primary focus:ring-primary/20 accent-primary"
+                />
+                <label htmlFor={`is_gift_${idSuffix}`} className="text-sm font-medium text-foreground cursor-pointer select-none">
+                    Sin cargo (regalo / cortesía)
+                </label>
+            </div>
+
+            {isGift && (card ? (
+                <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-md flex items-start gap-3">
+                    <Gift className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-green-600 dark:text-green-500">
+                            Gift Card <span className="font-mono">{card.code}</span>
+                        </p>
+                        <p className="text-xs text-green-600/80 dark:text-green-500/80">
+                            {formatMoney(card.amount, card.currency)} · {serviceName(card.service_id) || 'Sin tratamiento asignado'}
+                        </p>
+                        <p className="text-xs text-green-600/80 dark:text-green-500/80">
+                            {card.status === 'usada'
+                                ? 'Ya canjeada por este turno.'
+                                : 'Se marca como canjeada al confirmar el turno.'}
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onUnlink}
+                        title="Desvincular tarjeta"
+                        className="p-1 text-muted-foreground hover:text-destructive transition-colors cursor-pointer shrink-0"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground flex justify-between">
+                        Código de la tarjeta de regalo <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+                    </label>
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            placeholder="MAG-XXXXXX"
+                            className="flex-1 bg-background border border-input rounded-md px-3 py-2 text-sm font-mono text-foreground focus:ring-1 focus:ring-primary outline-none"
+                            value={code}
+                            onChange={e => onCodeChange(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onSearch() } }}
+                        />
+                        <button
+                            type="button"
+                            onClick={onSearch}
+                            disabled={searching}
+                            className="px-3 py-2 text-sm font-medium text-primary border border-primary/30 rounded-md hover:bg-primary/10 cursor-pointer disabled:opacity-50"
+                        >
+                            {searching ? 'Buscando...' : 'Vincular'}
+                        </button>
+                    </div>
+                    {message ? (
+                        <p className="text-xs text-destructive">{message}</p>
+                    ) : (
+                        <p className="text-xs text-muted-foreground">Si es cortesía de la casa (sin tarjeta), dejalo vacío.</p>
+                    )}
+                </div>
+            ))}
+        </div>
+    )
+}
+
 // ─── Component ─────────────────────────────────────────────────────────────────
 export function Appointments() {
     const calendarRef = useRef<HTMLDivElement>(null)
@@ -523,10 +648,17 @@ export function Appointments() {
         status: 'pendiente',
         notes: '',
         is_unpaid: false,
+        is_gift: false,
         duration: 0,
     })
 
     const [activeCuponera, setActiveCuponera] = useState<any>(null)
+
+    // ── Gift card vinculada al turno ──
+    const [giftCard, setGiftCard] = useState<GiftCardRow | null>(null)  // tarjeta vinculada / encontrada
+    const [giftCardCode, setGiftCardCode] = useState('')     // texto del buscador
+    const [giftCardMsg, setGiftCardMsg] = useState('')       // mensaje de error de la búsqueda
+    const [giftCardSearching, setGiftCardSearching] = useState(false)
 
     useEffect(() => {
         const fetchCuponera = async () => {
@@ -562,6 +694,16 @@ export function Appointments() {
         fetchCuponera()
     }, [formData.patient_ids[0], formData.service_id, isModalOpen, selectedEvent])
 
+    // Al abrir el modal, precargar la gift card que ya tenga vinculada el turno (si edita)
+    useEffect(() => {
+        if (!isModalOpen) return
+        const linked = selectedEvent?.raw?.giftCard ?? null
+        setGiftCard(linked)
+        setGiftCardCode(linked?.code ?? '')
+        setGiftCardMsg('')
+        setGiftCardSearching(false)
+    }, [isModalOpen, selectedEvent])
+
 
     useEffect(() => { fetchData() }, [])
 
@@ -569,12 +711,13 @@ export function Appointments() {
         const { data: appts } = await supabase
             .from('appointments')
             .select(`
-                id, start_time, end_time, status, room_id, cuponera_id, notes, is_unpaid, cuponera_session_index,
+                id, start_time, end_time, status, room_id, cuponera_id, notes, is_unpaid, cuponera_session_index, is_gift, gift_card_id,
                 appointment_patients(patients(id, first_name, last_name)),
                 services(id, name, duration_minutes),
                 professionals(id, first_name, last_name, color),
                 rooms(id, name),
-                cuponeras(id, total_sessions, used_sessions, is_paid, cuponera_type, total_months, start_date)
+                cuponeras(id, total_sessions, used_sessions, is_paid, cuponera_type, total_months, start_date),
+                gift_cards(id, code, status, amount, currency, service_id, redeemed_at)
             `)
 
         if (appts) {
@@ -620,6 +763,7 @@ export function Appointments() {
                 const room = Array.isArray(app.rooms) ? app.rooms[0] : app.rooms
 
                 const cuponera = Array.isArray(app.cuponeras) ? app.cuponeras[0] : app.cuponeras
+                const giftCardRow = Array.isArray(app.gift_cards) ? app.gift_cards[0] : app.gift_cards
 
                 // Título: todos los nombres unidos con &
                 const title = patientList.length
@@ -633,7 +777,7 @@ export function Appointments() {
                     end: new Date(app.end_time),
                     status: app.status,
                     resourceId: app.room_id,
-                    raw: { app, patientList, patient: patientList[0] ?? null, service, professional, room, cuponera, cuponeraSessionNumber: sessionInfoByAppt[app.id]?.number, cuponeraSessionProjected: sessionInfoByAppt[app.id]?.projected ?? false },
+                    raw: { app, patientList, patient: patientList[0] ?? null, service, professional, room, cuponera, giftCard: giftCardRow ?? null, cuponeraSessionNumber: sessionInfoByAppt[app.id]?.number, cuponeraSessionProjected: sessionInfoByAppt[app.id]?.projected ?? false },
                 }
             })
             setEvents(formatted)
@@ -663,6 +807,7 @@ export function Appointments() {
             status: 'pendiente',
             notes: '',
             is_unpaid: false,
+            is_gift: false,
             duration: 0,
         })
         setIsModalOpen(true)
@@ -691,6 +836,7 @@ export function Appointments() {
             patient_ids: existingIds.length ? existingIds : [''],
             notes: event.raw.app?.notes || '',
             is_unpaid: event.raw.app?.is_unpaid || false,
+            is_gift: event.raw.app?.is_gift || false,
             duration: durationMin,
         }))
         setIsModalOpen(true)
@@ -730,6 +876,57 @@ export function Appointments() {
         })
     }
 
+    // ── Helpers de la gift card ──
+    const serviceName = (id: string | null) => services.find(s => s.id === id)?.name || null
+
+    // Marcar/desmarcar "sin cargo". Sin cargo y deuda son incompatibles: al marcarlo se
+    // limpia el "no pagó" y, al desmarcarlo, se suelta la tarjeta que estuviera cargada.
+    const handleToggleGift = (checked: boolean) => {
+        setFormData(f => ({ ...f, is_gift: checked, is_unpaid: checked ? false : f.is_unpaid }))
+        if (!checked) setGiftCardMsg('')
+    }
+
+    const handleSearchGiftCard = async () => {
+        const code = giftCardCode.trim()
+        if (!code) {
+            setGiftCard(null)
+            setGiftCardMsg('Ingresá el código de la tarjeta.')
+            return
+        }
+
+        setGiftCardSearching(true)
+        const card = await findGiftCardByCode(code)
+        setGiftCardSearching(false)
+
+        if (!card) {
+            setGiftCard(null)
+            setGiftCardMsg('No existe ninguna tarjeta de regalo con ese código.')
+            return
+        }
+
+        // Una tarjeta ya canjeada solo se acepta si es la que este mismo turno tiene vinculada
+        const linkedId = selectedEvent?.raw?.app?.gift_card_id ?? null
+        if (card.status === 'usada' && card.id !== linkedId) {
+            setGiftCard(null)
+            setGiftCardMsg(
+                card.redeemed_at
+                    ? `Esa tarjeta ya fue canjeada el ${format(new Date(card.redeemed_at + 'T12:00:00'), 'dd/MM/yyyy')}.`
+                    : 'Esa tarjeta ya fue canjeada.'
+            )
+            return
+        }
+
+        setGiftCard(card)
+        setGiftCardMsg('')
+    }
+
+    // Solo desvincula en el formulario; el canje se revierte en la base al guardar.
+    const handleUnlinkGiftCard = () => {
+        setGiftCard(null)
+        setGiftCardCode('')
+        setGiftCardMsg('')
+    }
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
 
@@ -737,10 +934,13 @@ export function Appointments() {
         if (selectedEvent) {
             const prevStatus = selectedEvent.status
             const newStatus = formData.status
+            const newGiftCardId = formData.is_gift ? (giftCard?.id ?? null) : null
             const updatePayload: Record<string, any> = {
                 status: newStatus,
                 notes: formData.notes,
-                is_unpaid: newStatus === 'confirmado' ? formData.is_unpaid : false
+                is_unpaid: newStatus === 'confirmado' ? formData.is_unpaid : false,
+                is_gift: formData.is_gift,
+                gift_card_id: newGiftCardId,
             }
             if (formData.professional_id) updatePayload.professional_id = formData.professional_id
             if (formData.room_id) updatePayload.room_id = formData.room_id
@@ -791,6 +991,35 @@ export function Appointments() {
                     }
                 }
 
+                // Gift Card Update Logic — mismo criterio de "consumido" que la cuponera (más
+                // 'completado'): se canjea al confirmar y se libera solo si el canje lo había
+                // hecho ESTE turno, o sea si estaba consumido y dejó de estarlo.
+                const wasGiftConsumed = GIFT_CARD_CONSUMED_STATUSES.includes(prevStatus)
+                const isGiftConsumed = GIFT_CARD_CONSUMED_STATUSES.includes(newStatus)
+                const prevGiftCardId = selectedEvent.raw.app?.gift_card_id ?? null
+                const prevGiftCardCode = selectedEvent.raw.giftCard?.code ?? ''
+
+                // Desvincular o cambiar de tarjeta solo deshace el canje si lo hizo este turno:
+                // si nunca estuvo consumido, la tarjeta la canjeó alguien a mano desde Gift Cards.
+                if (prevGiftCardId && prevGiftCardId !== newGiftCardId && wasGiftConsumed) {
+                    const released = await releaseGiftCard(prevGiftCardId)
+                    if (!released) alert(`El turno se guardó, pero no se pudo liberar la gift card ${prevGiftCardCode}: sigue figurando como usada. Revisala en Gift Cards.`)
+                }
+                if (newGiftCardId && giftCard) {
+                    const alreadyRedeemed = giftCard.status === 'usada' && prevGiftCardId === newGiftCardId
+                    if (isGiftConsumed && !alreadyRedeemed) {
+                        const redeemed = await redeemGiftCard(giftCard, formData.service_id || selectedEvent.raw.service?.id || null)
+                        if (redeemed === 'ya_canjeada') {
+                            alert(`El turno se guardó, pero la gift card ${giftCard.code} ya estaba canjeada (por otro turno, o a mano desde Gift Cards), así que no se volvió a canjear.`)
+                        } else if (redeemed === 'error') {
+                            alert(`El turno se guardó, pero no se pudo marcar como usada la gift card ${giftCard.code}: sigue vigente. Revisala en Gift Cards.`)
+                        }
+                    } else if (prevStatus !== newStatus && wasGiftConsumed && !isGiftConsumed && alreadyRedeemed) {
+                        const released = await releaseGiftCard(newGiftCardId)
+                        if (!released) alert(`El turno se guardó, pero no se pudo liberar la gift card ${giftCard.code}: sigue figurando como usada. Revisala en Gift Cards.`)
+                    }
+                }
+
                 // Log only if status actually changed
                 if (prevStatus !== newStatus) {
                     const { raw } = selectedEvent
@@ -823,7 +1052,7 @@ export function Appointments() {
                 fetchData()
             } else {
                 console.error('Error updating appointment:', error)
-                alert(`Error al actualizar el turno: ${error.message}`)
+                alert(giftCardLinkConflictMessage(error, giftCard?.code) ?? `Error al actualizar el turno: ${error.message}`)
             }
             return
         }
@@ -866,6 +1095,8 @@ export function Appointments() {
             notes: formData.notes,
             cuponera_id: activeCuponera?.id || null,
             is_unpaid: formData.status === 'confirmado' ? formData.is_unpaid : false,
+            is_gift: formData.is_gift,
+            gift_card_id: formData.is_gift ? (giftCard?.id ?? null) : null,
         }]).select('id').single()
 
         if (!error && newAppt) {
@@ -933,10 +1164,21 @@ export function Appointments() {
                 }).eq('id', newAppt.id)
             }
 
+            // Canjear la gift card si el turno se dio de alta ya consumido
+            if (formData.is_gift && giftCard && giftCard.status !== 'usada' && GIFT_CARD_CONSUMED_STATUSES.includes(formData.status)) {
+                const redeemed = await redeemGiftCard(giftCard, formData.service_id || null)
+                if (redeemed === 'ya_canjeada') {
+                    alert(`El turno se guardó, pero la gift card ${giftCard.code} ya estaba canjeada (por otro turno, o a mano desde Gift Cards), así que no se volvió a canjear.`)
+                } else if (redeemed === 'error') {
+                    alert(`El turno se guardó, pero no se pudo marcar como usada la gift card ${giftCard.code}: sigue vigente. Revisala en Gift Cards.`)
+                }
+            }
+
             setIsModalOpen(false)
             fetchData()
         } else {
             console.error('Error saving appointment:', error)
+            alert(giftCardLinkConflictMessage(error, giftCard?.code) ?? `Error al guardar el turno: ${error?.message ?? 'probá de nuevo.'}`)
         }
     }
 
@@ -969,6 +1211,13 @@ export function Appointments() {
                 if (deletedIdx != null) {
                     await shiftCuponeraSessionIndexes(raw.cuponera.id, deletedIdx)
                 }
+            }
+
+            // Liberar la gift card solo si este turno era el que la había canjeado: si estaba
+            // pendiente, el canje lo hizo alguien a mano desde Gift Cards y no hay que deshacerlo.
+            if (raw.giftCard && raw.giftCard.status === 'usada' && GIFT_CARD_CONSUMED_STATUSES.includes(selectedEvent.status)) {
+                const released = await releaseGiftCard(raw.giftCard.id)
+                if (!released) alert(`El turno se eliminó, pero no se pudo liberar la gift card ${raw.giftCard.code}: sigue figurando como usada. Revisala en Gift Cards.`)
             }
 
             await writeLog({
@@ -1215,7 +1464,26 @@ export function Appointments() {
                                         </select>
                                     </div>
                                     
-                                    {formData.status === 'confirmado' && !activeCuponera && (
+                                    {/* Con cuponera activa el bloque se oculta, salvo que el turno YA esté sin cargo:
+                                        si no, una tarjeta vinculada quedaría imposible de desvincular (y el índice
+                                        único la dejaría inutilizable para cualquier otro turno). */}
+                                    {(!activeCuponera || formData.is_gift) && (
+                                        <GiftCardField
+                                            idSuffix="edit"
+                                            isGift={formData.is_gift}
+                                            onToggleGift={handleToggleGift}
+                                            code={giftCardCode}
+                                            onCodeChange={setGiftCardCode}
+                                            card={giftCard}
+                                            message={giftCardMsg}
+                                            searching={giftCardSearching}
+                                            onSearch={handleSearchGiftCard}
+                                            onUnlink={handleUnlinkGiftCard}
+                                            serviceName={serviceName}
+                                        />
+                                    )}
+
+                                    {formData.status === 'confirmado' && !activeCuponera && !formData.is_gift && (
                                         <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-md">
                                             <input
                                                 type="checkbox"
@@ -1382,7 +1650,23 @@ export function Appointments() {
                                         </select>
                                     </div>
 
-                                    {formData.status === 'confirmado' && !activeCuponera && (
+                                    {!activeCuponera && (
+                                        <GiftCardField
+                                            idSuffix="new"
+                                            isGift={formData.is_gift}
+                                            onToggleGift={handleToggleGift}
+                                            code={giftCardCode}
+                                            onCodeChange={setGiftCardCode}
+                                            card={giftCard}
+                                            message={giftCardMsg}
+                                            searching={giftCardSearching}
+                                            onSearch={handleSearchGiftCard}
+                                            onUnlink={handleUnlinkGiftCard}
+                                            serviceName={serviceName}
+                                        />
+                                    )}
+
+                                    {formData.status === 'confirmado' && !activeCuponera && !formData.is_gift && (
                                         <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-md">
                                             <input
                                                 type="checkbox"

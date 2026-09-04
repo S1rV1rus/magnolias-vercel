@@ -206,7 +206,8 @@ export function GiftCards() {
         if (!redeemCard) return
         const { error } = await supabase.from('gift_cards').update({
             status: 'usada',
-            redeemed_at: new Date().toISOString().split('T')[0],
+            // Fecha local, no UTC (ver nota en src/lib/giftCards.ts)
+            redeemed_at: format(new Date(), 'yyyy-MM-dd'),
             redeemed_service_id: redeemServiceId || redeemCard.service_id || null,
         }).eq('id', redeemCard.id)
         if (!error) { setRedeemCard(null); fetchData() }
