@@ -6,6 +6,20 @@ import { cn, formatMoney, monthsProgress } from '../../lib/utils'
 import { shiftCuponeraSessionIndexes } from '../../lib/cuponeras'
 import { CurrencyToggle, ZonesPicker } from '../../components/CuponeraFields'
 
+interface ProfessionalRef {
+    id: string
+    first_name: string
+    last_name: string
+}
+
+// Supabase devuelve las relaciones como objeto o como array según el caso
+type ProfessionalRelation = ProfessionalRef | ProfessionalRef[] | null | undefined
+
+interface AppointmentProfessionalsSource {
+    professionals?: ProfessionalRelation
+    appointment_professionals?: { professionals?: ProfessionalRelation }[] | null
+}
+
 export function PatientDetails() {
     const { id } = useParams()
     const navigate = useNavigate()
@@ -183,7 +197,8 @@ export function PatientDetails() {
                 id, start_time, end_time, status, notes, cuponera_id, is_unpaid, payment_amount, receipt_number, cuponera_session_index,
                 appointment_patients!inner(patient_id),
                 services(id, name),
-                professionals(first_name, last_name)
+                professionals(id, first_name, last_name),
+                appointment_professionals(professionals(id, first_name, last_name))
             `)
             .eq('appointment_patients.patient_id', id)
             .order('start_time', { ascending: false })
@@ -232,6 +247,29 @@ export function PatientDetails() {
     useEffect(() => {
         loadData()
     }, [id])
+
+    // Un turno puede tener de 1 a 4 profesionales (tabla puente appointment_professionals).
+    // professional_id sigue siendo la principal: encabeza la lista y sirve de respaldo para
+    // los turnos que todavía no tengan filas en la puente.
+    const unwrapProfessional = (rel: ProfessionalRelation): ProfessionalRef | null =>
+        Array.isArray(rel) ? (rel[0] ?? null) : (rel ?? null)
+
+    const getApptProfessionals = (appt: AppointmentProfessionalsSource): ProfessionalRef[] => {
+        const list: ProfessionalRef[] = []
+        const add = (p: ProfessionalRef | null) => {
+            if (p && !list.some(existing => existing.id === p.id)) list.push(p)
+        }
+
+        add(unwrapProfessional(appt?.professionals))
+        ;(appt?.appointment_professionals || []).forEach(link => {
+            add(unwrapProfessional(link.professionals))
+        })
+
+        return list
+    }
+
+    const professionalNames = (profs: ProfessionalRef[]): string =>
+        profs.map(p => `${p.first_name} ${p.last_name}`).join(' & ')
 
     const handleCreateCuponera = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -1146,6 +1184,8 @@ export function PatientDetails() {
                                             </div>
                                         )
                                     } else if (item.type === 'appointment') {
+                                        const itemProfs = getApptProfessionals(item);
+
                                         return (
                                             <div key={`appt-${item.id}`} className="flex gap-4 p-4 rounded-lg bg-card border border-border/50 hover:border-primary/20 transition-colors group">
                                                 <div className="flex-shrink-0 mt-1">
@@ -1161,10 +1201,10 @@ export function PatientDetails() {
                                                         </div>
                                                         <span className="text-sm text-muted-foreground font-medium">{new Date(item.start_time).toLocaleDateString('es-AR')}</span>
                                                     </div>
-                                                    {item.professionals && (
+                                                    {itemProfs.length > 0 && (
                                                         <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-1.5">
                                                             <User className="w-3.5 h-3.5" />
-                                                            Atendido por: {item.professionals.first_name} {item.professionals.last_name}
+                                                            Atendido por: {professionalNames(itemProfs)}
                                                         </p>
                                                     )}
                                                     {item.notes && (
@@ -1206,7 +1246,7 @@ export function PatientDetails() {
                             <div className="space-y-3">
                                 {appointments.map(appt => {
                                     const service = Array.isArray(appt.services) ? appt.services[0] : appt.services
-                                    const prof = Array.isArray(appt.professionals) ? appt.professionals[0] : appt.professionals
+                                    const profs = getApptProfessionals(appt)
                                     
                                     const getStatusBadge = (status: string) => {
                                         switch (status) {
@@ -1235,9 +1275,9 @@ export function PatientDetails() {
                                                     <span className="hidden sm:inline">•</span>
                                                     <span className="block sm:inline">{new Date(appt.start_time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} hs</span>
                                                 </div>
-                                                {prof && (
+                                                {profs.length > 0 && (
                                                     <div className="text-[13px] text-muted-foreground mt-2">
-                                                        Profesional: <span className="font-medium text-foreground">{prof.first_name} {prof.last_name}</span>
+                                                        {profs.length === 1 ? 'Profesional' : 'Profesionales'}: <span className="font-medium text-foreground">{professionalNames(profs)}</span>
                                                     </div>
                                                 )}
                                             </div>
@@ -1282,7 +1322,7 @@ export function PatientDetails() {
                                         ...appointments.filter(a => a.cuponera_id === cup.id && ['confirmado', 'cancelado_tarde', 'completado'].includes(a.status)).map(a => ({
                                             id: a.id,
                                             date: new Date(a.start_time),
-                                            professional: Array.isArray(a.professionals) ? a.professionals[0] : a.professionals,
+                                            professionals: getApptProfessionals(a),
                                             note: a.notes,
                                             type: 'Turno',
                                             sessionIndex: a.cuponera_session_index ?? null,
@@ -1291,7 +1331,7 @@ export function PatientDetails() {
                                         ...historyEntries.filter(h => h.notes && h.notes.includes(`[CUPONERA:${cup.id}]`)).map(h => ({
                                             id: h.id,
                                             date: new Date(h.created_at),
-                                            professional: Array.isArray(h.professionals) ? h.professionals[0] : h.professionals,
+                                            professionals: [Array.isArray(h.professionals) ? h.professionals[0] : h.professionals].filter(Boolean),
                                             note: h.notes?.replace(`[CUPONERA:${cup.id}] `, ''),
                                             type: 'Canje Manual',
                                             sessionIndex: h.cuponera_session_index ?? null,
@@ -1464,8 +1504,8 @@ export function PatientDetails() {
                                                                         </span>
                                                                         <div className="flex items-center gap-2">
                                                                             <span className="text-[9px] px-1 py-0.5 rounded-sm bg-background border border-border text-muted-foreground">{r.type}</span>
-                                                                            {r.professional && (
-                                                                                <span className="text-[10px] text-muted-foreground truncate max-w-[100px]">{r.professional.first_name} {r.professional.last_name}</span>
+                                                                            {r.professionals.length > 0 && (
+                                                                                <span className="text-[10px] text-muted-foreground truncate max-w-[100px]" title={professionalNames(r.professionals)}>{professionalNames(r.professionals)}</span>
                                                                             )}
                                                                         </div>
                                                                     </div>

@@ -57,6 +57,38 @@ const STATUS_LABEL: Record<string, string> = {
     cancelado_tarde: 'Cancelado c/penalidad',
 }
 
+// ─── Profesionales del turno ───────────────────────────────────────────────────
+// Un turno puede tener de 1 a 4 profesionales (masaje en pareja, cuatro manos): la principal
+// vive en appointments.professional_id y el equipo completo en appointment_professionals,
+// igual que appointments.patient_id + appointment_patients con los pacientes.
+const MAX_PROFESSIONALS = 4
+
+interface ProfessionalRef {
+    id: string
+    first_name: string
+    last_name: string
+}
+
+const professionalsOf = (list: ProfessionalRef[] | undefined, primary: ProfessionalRef | null): ProfessionalRef[] =>
+    list?.length ? list : (primary ? [primary] : [])
+
+// Etiqueta corta para la tarjeta del calendario, que es angosta: con una sola, nombre y
+// apellido como siempre; con dos, los dos nombres; con más, la principal y cuántas la
+// acompañan ("Agustina +2").
+const professionalsShortLabel = (list: ProfessionalRef[] | undefined, primary: ProfessionalRef | null) => {
+    const profs = professionalsOf(list, primary)
+    if (!profs.length) return ''
+    if (profs.length === 1) return `${profs[0].first_name} ${profs[0].last_name}`
+    if (profs.length === 2) return `${profs[0].first_name} + ${profs[1].first_name}`
+    return `${profs[0].first_name} +${profs.length - 1}`
+}
+
+// Nombres completos, para el tooltip, el modal y los logs (ahí sí entra el texto largo).
+const professionalsFullLabel = (list: ProfessionalRef[] | undefined, primary: ProfessionalRef | null) => {
+    const profs = professionalsOf(list, primary)
+    return profs.length ? profs.map(p => `${p.first_name} ${p.last_name}`).join(' & ') : '—'
+}
+
 // ─── Appointment Tooltip Portal ────────────────────────────────────────────────
 const PAYMENT_COLOR: Record<string, string> = {
     pago: '#16a34a',       // green-600
@@ -157,7 +189,7 @@ function AppointmentTooltip({ data }: { data: TooltipData }) {
 
 // ─── Custom Event ──────────────────────────────────────────────────────────────
 function AppointmentEvent({ event }: { event: any }) {
-    const { patientList, service, professional } = event.raw
+    const { patientList, service, professional, professionalList } = event.raw
     const names = patientList?.length
         ? patientList.map((p: any) => `${p.last_name} ${p.first_name}`).join(' & ')
         : '—'
@@ -233,9 +265,7 @@ function AppointmentEvent({ event }: { event: any }) {
         setTooltip({
             names,
             service: service?.name || '—',
-            professional: professional
-                ? `${professional.first_name} ${professional.last_name}`
-                : '—',
+            professional: professionalsFullLabel(professionalList, professional),
             status: event.status,
             time: format(event.start, 'HH:mm') + ' – ' + format(event.end, 'HH:mm'),
             notes: event.raw.app?.notes || '',
@@ -249,7 +279,7 @@ function AppointmentEvent({ event }: { event: any }) {
                     : `Sesión ${event.raw.cuponeraSessionNumber ?? event.raw.cuponera.used_sessions} de ${event.raw.cuponera.total_sessions}${event.raw.cuponeraSessionProjected ? ' (a confirmar)' : ''}`)
                 : undefined,
         })
-    }, [isTouch, names, service, professional, event.status, event.start, event.end, event.raw.app?.notes, event.raw.cuponera, event.raw.cuponeraSessionNumber, event.raw.cuponeraSessionProjected, getPaymentStatusInfo])
+    }, [isTouch, names, service, professional, professionalList, event.status, event.start, event.end, event.raw.app?.notes, event.raw.cuponera, event.raw.cuponeraSessionNumber, event.raw.cuponeraSessionProjected, getPaymentStatusInfo])
 
     const handleMouseLeave = useCallback(() => {
         if (isTouch) return
@@ -298,9 +328,7 @@ function AppointmentEvent({ event }: { event: any }) {
                 setTooltip({
                     names,
                     service: service?.name || '—',
-                    professional: professional
-                        ? `${professional.first_name} ${professional.last_name}`
-                        : '—',
+                    professional: professionalsFullLabel(professionalList, professional),
                     status: event.status,
                     time: format(event.start, 'HH:mm') + ' – ' + format(event.end, 'HH:mm'),
                     notes: event.raw.app?.notes || '',
@@ -315,7 +343,7 @@ function AppointmentEvent({ event }: { event: any }) {
                 hideTimer.current = setTimeout(() => setTooltip(null), 2500)
             }
         }
-    }, [names, service, professional, event.status, event.start, event.end, event.raw.app?.notes, getPaymentStatusInfo])
+    }, [names, service, professional, professionalList, event.status, event.start, event.end, event.raw.app?.notes, getPaymentStatusInfo])
 
     const handleTouchMove = useCallback(() => {
         // Si el usuario mueve el dedo (está haciendo scroll), también se cancela la edición
@@ -359,7 +387,7 @@ function AppointmentEvent({ event }: { event: any }) {
                 )}
             </span>
             <span className="text-[10px] truncate opacity-75">
-                {professional?.first_name} {professional?.last_name}
+                {professionalsShortLabel(professionalList, professional)}
             </span>
             <div className="absolute bottom-1 right-1 flex items-center gap-1">
                 {event.raw.app?.is_unpaid && (
@@ -637,11 +665,12 @@ export function Appointments() {
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [selectedEvent, setSelectedEvent] = useState<any>(null)
 
-    // patient_ids: lista de IDs (mínimo 1 entrada vacía al abrir el form)
+    // patient_ids / professional_ids: listas de IDs (mínimo 1 entrada vacía al abrir el form).
+    // La primera profesional de la lista es la principal (la que queda en professional_id).
     const [formData, setFormData] = useState({
         patient_ids: [''],
         service_id: '',
-        professional_id: '',
+        professional_ids: [''],
         room_id: '',
         date: format(new Date(), 'yyyy-MM-dd'),
         time: format(roundToNearest30(new Date()), 'HH:mm'),
@@ -713,6 +742,7 @@ export function Appointments() {
             .select(`
                 id, start_time, end_time, status, room_id, cuponera_id, notes, is_unpaid, cuponera_session_index, is_gift, gift_card_id,
                 appointment_patients(patients(id, first_name, last_name)),
+                appointment_professionals(created_at, professionals(id, first_name, last_name, color)),
                 services(id, name, duration_minutes),
                 professionals(id, first_name, last_name, color),
                 rooms(id, name),
@@ -762,6 +792,18 @@ export function Appointments() {
                 const professional = Array.isArray(app.professionals) ? app.professionals[0] : app.professionals
                 const room = Array.isArray(app.rooms) ? app.rooms[0] : app.rooms
 
+                // Equipo del turno: la principal (professional_id) primero y el resto en orden
+                // de alta. Un turno de una sola profesional queda igual que siempre.
+                const profRows = Array.isArray(app.appointment_professionals) ? app.appointment_professionals : []
+                const teamProfessionals = profRows
+                    .slice()
+                    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+                    .map(r => Array.isArray(r.professionals) ? r.professionals[0] : r.professionals)
+                    .filter(Boolean)
+                const professionalList = professional
+                    ? [professional, ...teamProfessionals.filter(pr => pr.id !== professional.id)]
+                    : teamProfessionals
+
                 const cuponera = Array.isArray(app.cuponeras) ? app.cuponeras[0] : app.cuponeras
                 const giftCardRow = Array.isArray(app.gift_cards) ? app.gift_cards[0] : app.gift_cards
 
@@ -777,7 +819,7 @@ export function Appointments() {
                     end: new Date(app.end_time),
                     status: app.status,
                     resourceId: app.room_id,
-                    raw: { app, patientList, patient: patientList[0] ?? null, service, professional, room, cuponera, giftCard: giftCardRow ?? null, cuponeraSessionNumber: sessionInfoByAppt[app.id]?.number, cuponeraSessionProjected: sessionInfoByAppt[app.id]?.projected ?? false },
+                    raw: { app, patientList, patient: patientList[0] ?? null, service, professional, professionalList, room, cuponera, giftCard: giftCardRow ?? null, cuponeraSessionNumber: sessionInfoByAppt[app.id]?.number, cuponeraSessionProjected: sessionInfoByAppt[app.id]?.projected ?? false },
                 }
             })
             setEvents(formatted)
@@ -800,7 +842,7 @@ export function Appointments() {
         setFormData({
             patient_ids: [''],
             service_id: '',
-            professional_id: '',
+            professional_ids: [''],
             room_id: resourceId ?? '',
             date: format(targetDate, 'yyyy-MM-dd'),
             time: format(targetDate, 'HH:mm'),
@@ -824,13 +866,14 @@ export function Appointments() {
         setSelectedEvent(event)
         const existingIds = event.raw.patientList?.map((p: any) => p.id) ?? ['']
         const profId = event.raw.professional?.id ?? event.raw.app?.professional_id ?? ''
+        const existingProfIds: string[] = event.raw.professionalList?.map((pr: ProfessionalRef) => pr.id) ?? []
         const roomId = event.raw.room?.id ?? event.raw.app?.room_id ?? ''
         const srvId = event.raw.service?.id ?? event.raw.app?.service_id ?? ''
         const durationMin = Math.max(5, Math.round((event.end.getTime() - event.start.getTime()) / 60000))
         setFormData(f => ({
             ...f,
             status: event.status,
-            professional_id: profId,
+            professional_ids: existingProfIds.length ? existingProfIds : [profId],
             room_id: roomId,
             service_id: srvId,
             patient_ids: existingIds.length ? existingIds : [''],
@@ -875,6 +918,37 @@ export function Appointments() {
             return { ...f, patient_ids: ids }
         })
     }
+
+    // ── Helpers para el selector de profesionales ──
+    // Hasta MAX_PROFESSIONALS por turno (masaje en pareja, cuatro manos): la primera de la
+    // lista es la principal y es la que queda en appointments.professional_id.
+    const addProfessionalSlot = () => {
+        setFormData(f => f.professional_ids.length >= MAX_PROFESSIONALS
+            ? f
+            : { ...f, professional_ids: [...f.professional_ids, ''] })
+    }
+
+    const removeProfessionalSlot = (idx: number) => {
+        setFormData(f => ({
+            ...f,
+            professional_ids: f.professional_ids.length > 1
+                ? f.professional_ids.filter((_, i) => i !== idx)
+                : ['']
+        }))
+    }
+
+    const updateProfessionalSlot = (idx: number, value: string) => {
+        setFormData(f => {
+            const ids = [...f.professional_ids]
+            ids[idx] = value
+            return { ...f, professional_ids: ids }
+        })
+    }
+
+    // Una misma profesional no se puede elegir dos veces en el mismo turno (la tabla puente
+    // tiene un único por turno + profesional), así que se sacan del resto de los selectores.
+    const availableProfessionals = (currentId: string) =>
+        professionals.filter(p => p.id === currentId || !formData.professional_ids.includes(p.id))
 
     // ── Helpers de la gift card ──
     const serviceName = (id: string | null) => services.find(s => s.id === id)?.name || null
@@ -927,6 +1001,83 @@ export function Appointments() {
         setGiftCardMsg('')
     }
 
+    // ── Profesionales del turno en la tabla puente ──
+    // Mismo criterio que con los pacientes: se sincroniza la lista completa (se borran las que
+    // ya no están y se insertan las nuevas). La principal, además, queda en professional_id.
+    const syncAppointmentProfessionals = async (appointmentId: string, professionalIds: string[]) => {
+        await supabase.from('appointment_professionals').delete().eq('appointment_id', appointmentId)
+        if (!professionalIds.length) return
+        const { error } = await supabase.from('appointment_professionals').insert(
+            professionalIds.map(prid => ({ appointment_id: appointmentId, professional_id: prid }))
+        )
+        if (error) {
+            console.error('Error guardando las profesionales del turno:', error)
+            alert(`El turno se guardó, pero no se pudieron asignar todas las profesionales: ${error.message}`)
+        }
+    }
+
+    // ── Bloqueo de agenda (anti doble reserva) ──
+    // Devuelve el mensaje del choque (diciendo QUIÉN está ocupada) o null si el horario está libre.
+    //
+    // Una profesional puede estar en un turno por dos vías: la columna appointments.professional_id
+    // (la principal) o una fila en appointment_professionals (la segunda masajista del masaje en
+    // pareja). Un solo .or() no alcanza, porque PostgREST no filtra por columnas de una tabla
+    // embebida dentro de un or(); y un !inner sobre el puente dejaría afuera a los turnos que
+    // todavía no tienen filas ahí. Así que se traen los turnos que pisan esa franja horaria —son
+    // un puñado, como mucho uno por consultorio— y el cruce se resuelve acá uniendo las dos fuentes.
+    const findScheduleConflict = async (
+        startDateTime: Date,
+        endDateTime: Date,
+        professionalIds: string[],
+        roomId: string,
+        ignoreAppointmentId?: string,
+    ): Promise<string | null> => {
+        let query = supabase
+            .from('appointments')
+            .select('id, room_id, professional_id, appointment_professionals(professional_id)')
+            .neq('status', 'cancelado')
+            .neq('status', 'cancelado_tarde')
+            .lt('start_time', endDateTime.toISOString())
+            .gt('end_time', startDateTime.toISOString())
+
+        // Al editar, el propio turno no cuenta como conflicto consigo mismo
+        if (ignoreAppointmentId) query = query.neq('id', ignoreAppointmentId)
+
+        const { data: overlapping, error: overlapError } = await query
+
+        if (overlapError) {
+            console.warn('Overlap check failed (posiblemente RLS):', overlapError)
+            return null
+        }
+        if (!overlapping?.length) return null
+
+        // Primero las profesionales: es el choque que pidió avisar la clínica
+        for (const appt of overlapping) {
+            const busyIds = new Set<string>([
+                ...(appt.professional_id ? [appt.professional_id] : []),
+                ...(Array.isArray(appt.appointment_professionals) ? appt.appointment_professionals : [])
+                    .map(r => r.professional_id)
+                    .filter(Boolean),
+            ])
+            const takenId = professionalIds.find(id => busyIds.has(id))
+            if (takenId) {
+                const prof = professionals.find(pr => pr.id === takenId)
+                const name = prof ? `${prof.first_name} ${prof.last_name}` : 'La profesional seleccionada'
+                return `${name} ya tiene un turno asignado en ese horario.`
+            }
+        }
+
+        const roomTaken = roomId && overlapping.some(appt => appt.room_id === roomId)
+        if (roomTaken) {
+            const room = rooms.find(r => r.id === roomId)
+            return room
+                ? `El consultorio ${room.name} ya tiene un turno asignado en ese horario.`
+                : 'El consultorio ya tiene un turno asignado en ese horario.'
+        }
+
+        return null
+    }
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
 
@@ -934,6 +1085,7 @@ export function Appointments() {
         if (selectedEvent) {
             const prevStatus = selectedEvent.status
             const newStatus = formData.status
+            const validProfessionalIds = [...new Set(formData.professional_ids.filter(Boolean))]
             const newGiftCardId = formData.is_gift ? (giftCard?.id ?? null) : null
             const updatePayload: Record<string, any> = {
                 status: newStatus,
@@ -942,13 +1094,47 @@ export function Appointments() {
                 is_gift: formData.is_gift,
                 gift_card_id: newGiftCardId,
             }
-            if (formData.professional_id) updatePayload.professional_id = formData.professional_id
+            // La primera de la lista es la principal y es la que se guarda en la columna
+            if (validProfessionalIds.length) updatePayload.professional_id = validProfessionalIds[0]
             if (formData.room_id) updatePayload.room_id = formData.room_id
             // Permitir acortar/ajustar manualmente la duración del turno (recalcula end_time).
+            const newEnd = formData.duration && formData.duration > 0
+                ? new Date(selectedEvent.start.getTime() + formData.duration * 60000)
+                : selectedEvent.end
             if (formData.duration && formData.duration > 0) {
-                const newEnd = new Date(selectedEvent.start.getTime() + formData.duration * 60000)
                 updatePayload.end_time = newEnd.toISOString()
             }
+
+            // Bloqueo de agenda: solo se revisa si cambió algo de lo que ocupa la agenda
+            // (equipo, consultorio u horario) y el turno sigue vigente. Un cambio de estado o
+            // de notas no se valida, para no trabar turnos viejos que ya vienen superpuestos.
+            const CANCELADOS = ['cancelado', 'cancelado_tarde']
+            const prevProfessionalIds: string[] = selectedEvent.raw.professionalList?.map((pr: ProfessionalRef) => pr.id) ?? []
+            // Reactivar un turno cancelado SÍ vuelve a ocupar la agenda: mientras estuvo
+            // cancelado su hueco pudo revenderse, así que hay que revalidar aunque no haya
+            // cambiado ni el equipo ni la sala ni el horario.
+            const seReactiva = CANCELADOS.includes(selectedEvent.status) && !CANCELADOS.includes(newStatus)
+            const occupancyChanged =
+                seReactiva
+                || formData.room_id !== (selectedEvent.raw.room?.id ?? '')
+                || validProfessionalIds.length !== prevProfessionalIds.length
+                || validProfessionalIds.some(id => !prevProfessionalIds.includes(id))
+                || newEnd.getTime() !== selectedEvent.end.getTime()
+
+            if (occupancyChanged && !CANCELADOS.includes(newStatus)) {
+                const conflict = await findScheduleConflict(
+                    selectedEvent.start,
+                    newEnd,
+                    validProfessionalIds,
+                    formData.room_id,
+                    selectedEvent.id,
+                )
+                if (conflict) {
+                    alert(conflict)
+                    return
+                }
+            }
+
             const { error } = await supabase
                 .from('appointments')
                 .update(updatePayload)
@@ -961,6 +1147,11 @@ export function Appointments() {
                     await supabase.from('appointment_patients').insert(
                         validIds.map(pid => ({ appointment_id: selectedEvent.id, patient_id: pid }))
                     )
+                }
+
+                // Update professionals in junction table
+                if (validProfessionalIds.length > 0) {
+                    await syncAppointmentProfessionals(selectedEvent.id, validProfessionalIds)
                 }
 
                 // Cuponera Update Logic
@@ -1041,7 +1232,7 @@ export function Appointments() {
                             label: `${currentUserName} ${statusLabels[newStatus] ?? newStatus} el turno de ${patientNames}`,
                             patient: patientNames,
                             service: raw.service?.name,
-                            professional: `${raw.professional?.first_name} ${raw.professional?.last_name}`,
+                            professional: professionalsFullLabel(raw.professionalList, raw.professional),
                             appointment_time: appointmentTime,
                             prev_status: prevStatus,
                             new_status: newStatus,
@@ -1059,7 +1250,8 @@ export function Appointments() {
 
         // ── Create new ──
         const validPatientIds = formData.patient_ids.filter(Boolean)
-        if (!validPatientIds.length || !formData.service_id || !formData.professional_id || !formData.room_id) return
+        const validProfessionalIds = [...new Set(formData.professional_ids.filter(Boolean))]
+        if (!validPatientIds.length || !formData.service_id || !validProfessionalIds.length || !formData.room_id) return
 
         const selectedService = services.find(s => s.id === formData.service_id)
         const duration = selectedService?.duration_minutes || 30
@@ -1067,27 +1259,17 @@ export function Appointments() {
         const startDateTime = new Date(`${formData.date}T${formData.time}:00`)
         const endDateTime = new Date(startDateTime.getTime() + duration * 60000)
 
-        // Anti-double-booking
-        const { data: overlapping, error: overlapError } = await supabase
-            .from('appointments')
-            .select('id')
-            .or(`professional_id.eq.${formData.professional_id},room_id.eq.${formData.room_id}`)
-            .neq('status', 'cancelado')
-            .neq('status', 'cancelado_tarde')
-            .lt('start_time', endDateTime.toISOString())
-            .gt('end_time', startDateTime.toISOString())
-
-        if (overlapError) {
-            console.warn('Overlap check failed (posiblemente RLS):', overlapError)
-        } else if (overlapping && overlapping.length > 0) {
-            alert('El profesional o el consultorio ya tienen un turno asignado en ese horario.')
+        // Anti-double-booking — de todas las profesionales elegidas y del consultorio
+        const conflict = await findScheduleConflict(startDateTime, endDateTime, validProfessionalIds, formData.room_id)
+        if (conflict) {
+            alert(conflict)
             return
         }
 
         const { data: newAppt, error } = await supabase.from('appointments').insert([{
             patient_id: validPatientIds[0], // primer paciente como referencia legacy
             service_id: formData.service_id,
-            professional_id: formData.professional_id,
+            professional_id: validProfessionalIds[0], // primera profesional como principal
             room_id: formData.room_id,
             start_time: startDateTime.toISOString(),
             end_time: endDateTime.toISOString(),
@@ -1105,10 +1287,16 @@ export function Appointments() {
                 validPatientIds.map(pid => ({ appointment_id: newAppt.id, patient_id: pid }))
             )
 
+            // Ídem con las profesionales del turno
+            await syncAppointmentProfessionals(newAppt.id, validProfessionalIds)
+
             // Obtener nombres para el log
             const { data: pData } = await supabase.from('patients').select('first_name, last_name').in('id', validPatientIds)
             const patientNames = pData?.map(p => `${p.first_name} ${p.last_name}`).join(' & ') ?? '—'
-            const prof = professionals.find(p => p.id === formData.professional_id)
+            const professionalNames = professionalsFullLabel(
+                validProfessionalIds.map(id => professionals.find(p => p.id === id)).filter(Boolean),
+                null,
+            )
 
             await writeLog({
                 action: 'turno_creado',
@@ -1119,7 +1307,7 @@ export function Appointments() {
                     label: `${currentUserName} agendó un turno a ${patientNames}`,
                     patient: patientNames,
                     service: selectedService?.name,
-                    professional: `${prof?.first_name ?? ''} ${prof?.last_name ?? ''}`.trim(),
+                    professional: professionalNames,
                     appointment_time: format(startDateTime, "EEEE dd 'de' MMM HH:mm", { locale: es }),
                     status: formData.status,
                 },
@@ -1141,7 +1329,7 @@ export function Appointments() {
                         label: `${currentUserName} ${statusLabels[formData.status] ?? formData.status} el turno de ${patientNames}`,
                         patient: patientNames,
                         service: selectedService?.name,
-                        professional: `${prof?.first_name ?? ''} ${prof?.last_name ?? ''}`.trim(),
+                        professional: professionalNames,
                         appointment_time: format(startDateTime, "EEEE dd 'de' MMM HH:mm", { locale: es }),
                     },
                 })
@@ -1191,8 +1379,9 @@ export function Appointments() {
         const patientNames = raw.patientList?.map((p: any) => `${p.first_name} ${p.last_name}`).join(' & ') ?? '—'
         const appointmentTime = format(selectedEvent.start, "EEEE dd 'de' MMM HH:mm", { locale: es })
 
-        // Borrar pacientes de la tabla de unión primero
+        // Borrar pacientes y profesionales de las tablas de unión primero
         await supabase.from('appointment_patients').delete().eq('appointment_id', selectedEvent.id)
+        await supabase.from('appointment_professionals').delete().eq('appointment_id', selectedEvent.id)
         const { error } = await supabase.from('appointments').delete().eq('id', selectedEvent.id)
 
         if (!error) {
@@ -1229,7 +1418,7 @@ export function Appointments() {
                     label: `${currentUserName} canceló el turno de ${patientNames}`,
                     patient: patientNames,
                     service: raw.service?.name,
-                    professional: `${raw.professional?.first_name ?? ''} ${raw.professional?.last_name ?? ''}`.trim(),
+                    professional: professionalsFullLabel(raw.professionalList, raw.professional),
                     appointment_time: appointmentTime,
                 },
             })
@@ -1342,7 +1531,7 @@ export function Appointments() {
                                         </p>
                                         <p className="text-sm text-muted-foreground">
                                             {selectedEvent.raw.service?.name}
-                                            {selectedEvent.raw.professional && ` — Dr/a. ${selectedEvent.raw.professional.first_name} ${selectedEvent.raw.professional.last_name}`}
+                                            {selectedEvent.raw.professional && ` — Dr/a. ${professionalsFullLabel(selectedEvent.raw.professionalList, selectedEvent.raw.professional)}`}
                                         </p>
                                     </div>
 
@@ -1410,17 +1599,48 @@ export function Appointments() {
 
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
-                                            <label className="text-sm font-medium text-foreground">Profesional</label>
-                                            <select
-                                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
-                                                value={formData.professional_id}
-                                                onChange={e => setFormData({ ...formData, professional_id: e.target.value })}
-                                            >
-                                                <option value="">Sin asignar</option>
-                                                {professionals.map(p => (
-                                                    <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>
+                                            <div className="flex items-center justify-between gap-2">
+                                                <label className="text-sm font-medium text-foreground">
+                                                    Profesional{formData.professional_ids.length > 1 ? 'es' : ''}
+                                                </label>
+                                                {formData.professional_ids.length < MAX_PROFESSIONALS && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={addProfessionalSlot}
+                                                        className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 cursor-pointer whitespace-nowrap"
+                                                    >
+                                                        <UserPlus className="w-3.5 h-3.5" /> Agregar
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <div className="space-y-2">
+                                                {formData.professional_ids.map((prid, idx) => (
+                                                    <div key={idx} className="flex gap-1 items-center">
+                                                        <select
+                                                            className="flex-1 min-w-0 bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                                            value={prid}
+                                                            onChange={e => updateProfessionalSlot(idx, e.target.value)}
+                                                        >
+                                                            <option value="">Sin asignar</option>
+                                                            {availableProfessionals(prid).map(p => (
+                                                                <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>
+                                                            ))}
+                                                        </select>
+                                                        {formData.professional_ids.length > 1 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => removeProfessionalSlot(idx)}
+                                                                className="p-1 text-muted-foreground hover:text-destructive cursor-pointer shrink-0"
+                                                            >
+                                                                <X className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 ))}
-                                            </select>
+                                            </div>
+                                            {formData.professional_ids.length > 1 && (
+                                                <p className="text-xs text-muted-foreground">La primera es la principal.</p>
+                                            )}
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-sm font-medium text-foreground">Consultorio</label>
@@ -1539,21 +1759,52 @@ export function Appointments() {
                                             ))}                                        </div>
                                     </div>
 
-                                    {/* Profesional + Consultorio */}
+                                    {/* Profesionales + Consultorio */}
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
-                                            <label className="text-sm font-medium text-foreground">Profesional</label>
-                                            <select
-                                                required
-                                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
-                                                value={formData.professional_id}
-                                                onChange={e => setFormData({ ...formData, professional_id: e.target.value })}
-                                            >
-                                                <option value="" disabled>Elegir...</option>
-                                                {professionals.map(p => (
-                                                    <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>
+                                            <div className="flex items-center justify-between gap-2">
+                                                <label className="text-sm font-medium text-foreground">
+                                                    Profesional{formData.professional_ids.length > 1 ? 'es' : ''}
+                                                </label>
+                                                {formData.professional_ids.length < MAX_PROFESSIONALS && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={addProfessionalSlot}
+                                                        className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 cursor-pointer whitespace-nowrap"
+                                                    >
+                                                        <UserPlus className="w-3.5 h-3.5" /> Agregar
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <div className="space-y-2">
+                                                {formData.professional_ids.map((prid, idx) => (
+                                                    <div key={idx} className="flex gap-1 items-center">
+                                                        <select
+                                                            required={idx === 0}
+                                                            className="flex-1 min-w-0 bg-background border border-input rounded-md px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                                            value={prid}
+                                                            onChange={e => updateProfessionalSlot(idx, e.target.value)}
+                                                        >
+                                                            <option value="" disabled>Elegir...</option>
+                                                            {availableProfessionals(prid).map(p => (
+                                                                <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>
+                                                            ))}
+                                                        </select>
+                                                        {formData.professional_ids.length > 1 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => removeProfessionalSlot(idx)}
+                                                                className="p-1 text-muted-foreground hover:text-destructive cursor-pointer shrink-0"
+                                                            >
+                                                                <X className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 ))}
-                                            </select>
+                                            </div>
+                                            {formData.professional_ids.length > 1 && (
+                                                <p className="text-xs text-muted-foreground">La primera es la principal.</p>
+                                            )}
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-sm font-medium text-foreground">Consultorio</label>

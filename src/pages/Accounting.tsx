@@ -33,6 +33,12 @@ interface Cuponera {
     services: { id: string; name: string } | null
 }
 
+interface ProfessionalRef {
+    id: string
+    first_name: string
+    last_name: string
+}
+
 interface IndividualService {
     id: string
     start_time: string
@@ -42,8 +48,9 @@ interface IndividualService {
     is_unpaid: boolean
     cuponera_id: string | null
     appointment_patients: { patients: { id: string; first_name: string; last_name: string } | null }[]
+    appointment_professionals: { professionals: ProfessionalRef | ProfessionalRef[] | null }[]
     services: { id: string; name: string; price: number | null } | null
-    professionals: { id: string; first_name: string; last_name: string } | null
+    professionals: ProfessionalRef | null
 }
 
 type QuickRange = 'this-month' | 'last-month' | 'last-30' | 'last-90' | 'this-year' | 'custom'
@@ -142,6 +149,7 @@ export function Accounting() {
                 .select(`
                     id, start_time, status, payment_amount, receipt_number, is_unpaid, cuponera_id,
                     appointment_patients(patients(id, first_name, last_name)),
+                    appointment_professionals(professionals(id, first_name, last_name)),
                     services(id, name, price),
                     professionals(id, first_name, last_name)
                 `)
@@ -180,6 +188,28 @@ export function Accounting() {
         return names.length > 0 ? names.join(' & ') : '—'
     }
 
+    // ── Helper: get professional names from appointment ────────────────────────
+    // Un turno puede tener de 1 a 4 profesionales (appointment_professionals). La principal
+    // sigue en professionals, así que encabeza la lista y cubre a los turnos sin filas puente.
+    function getProfessionalName(srv: IndividualService): string {
+        const names: string[] = []
+        const vistos = new Set<string>()
+        // Se deduplica por id, no por nombre, para no colapsar a dos homónimas
+        // (mismo criterio que Metrics y PatientDetails).
+        const add = (p: ProfessionalRef | null) => {
+            if (!p || vistos.has(p.id)) return
+            vistos.add(p.id)
+            names.push(`${p.first_name} ${p.last_name}`)
+        }
+
+        add(srv.professionals)
+        ;(srv.appointment_professionals || []).forEach(r => {
+            add(Array.isArray(r.professionals) ? (r.professionals[0] ?? null) : r.professionals)
+        })
+
+        return names.length > 0 ? names.join(' & ') : '—'
+    }
+
     // ── Computed KPIs ──────────────────────────────────────────────────────────
     // Totales de cuponeras separados por moneda (los servicios individuales se asumen en pesos).
     const cuponerasTotal = cuponeras.reduce((sum, c) => sum + (c.currency !== 'USD' ? (c.amount_paid ?? 0) : 0), 0)
@@ -215,7 +245,7 @@ export function Accounting() {
         if (!searchQuery.trim()) return true
         const terms = normalize(searchQuery).split(' ').filter(Boolean)
         const patientName = getPatientName(s)
-        const haystack = normalize(`${patientName} ${s.services?.name} ${s.professionals?.first_name} ${s.professionals?.last_name} ${s.receipt_number || ''}`)
+        const haystack = normalize(`${patientName} ${s.services?.name} ${getProfessionalName(s)} ${s.receipt_number || ''}`)
         return terms.every(t => haystack.includes(t))
     })
 
@@ -429,11 +459,12 @@ export function Accounting() {
             const effectiveAmount = s.payment_amount ?? s.services?.price ?? 0
             const isEstimated = !s.payment_amount && s.services?.price
             const badge = s.is_unpaid ? '<span class="badge-red">Impago</span>' : '<span class="badge-green">Cobrado</span>'
+            const profNames = getProfessionalName(s)
             html += `<tr>
                 <td class="${cls}">${format(new Date(s.start_time), 'dd/MM/yyyy')}</td>
                 <td class="${cls}">${esc(getPatientName(s))}</td>
                 <td class="${cls}">${esc(s.services?.name)}</td>
-                <td class="${cls}">${s.professionals ? esc(`${s.professionals.first_name} ${s.professionals.last_name}`) : '<span class="text-muted">—</span>'}</td>
+                <td class="${cls}">${profNames !== '—' ? esc(profNames) : '<span class="text-muted">—</span>'}</td>
                 <td class="${cls} td-amount">${effectiveAmount > 0 ? fmtMoney(effectiveAmount) : '<span class="text-muted">—</span>'}${isEstimated ? ' <span class="text-muted">(lista)</span>' : ''}</td>
                 <td class="${cls}">${isEstimated ? 'Lista' : 'Cobrado'}</td>
                 <td class="${cls}">${esc(s.receipt_number) || '<span class="text-muted">—</span>'}</td>
@@ -894,10 +925,7 @@ export function Accounting() {
                                                 </span>
                                             </td>
                                             <td className="px-5 py-3.5 text-muted-foreground">
-                                                {s.professionals
-                                                    ? `${s.professionals.first_name} ${s.professionals.last_name}`
-                                                    : '—'
-                                                }
+                                                {getProfessionalName(s)}
                                             </td>
                                             <td className="px-5 py-3.5">
                                                 {effectiveAmount > 0 ? (

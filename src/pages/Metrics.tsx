@@ -27,6 +27,10 @@ interface Professional {
     color: string
 }
 
+interface AppointmentProfessional {
+    professionals: Professional | Professional[] | null
+}
+
 interface Appointment {
     id: string
     start_time: string
@@ -35,6 +39,7 @@ interface Appointment {
     service_id: string
     services: Service | Service[] | null
     professionals: Professional | Professional[] | null
+    appointment_professionals: AppointmentProfessional[] | null
 }
 
 type QuickRange = 'this-month' | 'last-month' | 'last-30' | 'last-90' | 'this-year' | 'custom'
@@ -118,7 +123,8 @@ export function Metrics() {
                     .select(`
                         id, start_time, status, professional_id, service_id,
                         services(id, name, duration_minutes),
-                        professionals(id, first_name, last_name, color)
+                        professionals(id, first_name, last_name, color),
+                        appointment_professionals(professionals(id, first_name, last_name, color))
                     `)
                     .gte('start_time', startIso)
                     .lte('start_time', endIso)
@@ -155,24 +161,41 @@ export function Metrics() {
         return Array.isArray(app.professionals) ? app.professionals[0] : app.professionals
     }
 
+    // Un turno puede tener de 1 a 4 profesionales (tabla puente appointment_professionals).
+    // professional_id sigue siendo la principal: encabeza la lista y sirve de respaldo para
+    // cualquier turno que todavía no tenga filas en la puente.
+    const getProfessionals = (app: Appointment): Professional[] => {
+        const list: Professional[] = []
+        const add = (p: Professional | null) => {
+            if (p && !list.some(existing => existing.id === p.id)) list.push(p)
+        }
+
+        add(getProfessional(app))
+        app.appointment_professionals?.forEach(link => {
+            add(Array.isArray(link.professionals) ? link.professionals[0] : link.professionals)
+        })
+
+        return list
+    }
+
     // Computed Data
     const filteredAppts = appointments.filter(app => {
         const service = getService(app)
-        const professional = getProfessional(app)
+        const appProfessionals = getProfessionals(app)
 
         // Status Filter
         if (selectedStatus === 'completado' && app.status !== 'completado') return false
         if (selectedStatus === 'confirmados-completados' && !['completado', 'confirmado'].includes(app.status)) return false
         if (app.status === 'cancelado' || app.status === 'cancelado_tarde') return false // Skip cancelled altogether for performance metrics
 
-        // Professional Filter
-        if (selectedProfId !== 'all' && app.professional_id !== selectedProfId) return false
+        // Professional Filter — alcanza con que participe del turno, sea la principal o no
+        if (selectedProfId !== 'all' && !appProfessionals.some(p => p.id === selectedProfId)) return false
 
         // Service Filter
         if (selectedServiceId !== 'all' && app.service_id !== selectedServiceId) return false
 
         // Relation sanity checks
-        if (!service || !professional) return false
+        if (!service || appProfessionals.length === 0) return false
 
         return true
     })
@@ -206,22 +229,24 @@ export function Metrics() {
 
     filteredAppts.forEach(app => {
         const s = getService(app)
-        const p = getProfessional(app)
-        
+
         if (s) {
             serviceCounts[s.id] = {
                 name: s.name,
                 count: (serviceCounts[s.id]?.count || 0) + 1
             }
         }
-        if (p) {
+        // Turno compartido: suma entero para cada profesional. Es rendimiento individual,
+        // no se reparte. Los totales de la clínica (KPIs, volumen por tratamiento) se siguen
+        // calculando sobre filteredAppts, que tiene una fila por turno y no se infla.
+        getProfessionals(app).forEach(p => {
             const fullName = `${p.first_name} ${p.last_name}`
             professionalCounts[p.id] = {
                 name: fullName,
                 count: (professionalCounts[p.id]?.count || 0) + 1,
                 color: p.color
             }
-        }
+        })
     })
 
     const topService = Object.values(serviceCounts).sort((a, b) => b.count - a.count)[0]?.name || '—'
@@ -229,7 +254,7 @@ export function Metrics() {
 
     // Compute Staff Performance list
     const staffData = professionals.map(prof => {
-        const profAppts = filteredAppts.filter(app => app.professional_id === prof.id)
+        const profAppts = filteredAppts.filter(app => getProfessionals(app).some(p => p.id === prof.id))
         const sessions = profAppts.length
         const minutes = profAppts.reduce((sum, app) => sum + (getService(app)?.duration_minutes || 0), 0)
         const hours = (minutes / 60).toFixed(1)
@@ -283,15 +308,16 @@ export function Metrics() {
         // Professional breakdown for this service
         const pBreakdown: Record<string, { id: string; name: string; count: number; color: string }> = {}
         srvAppts.forEach(app => {
-            const p = getProfessional(app)
-            if (p) {
+            // Mismo criterio: el turno compartido cuenta entero para cada profesional,
+            // mientras que srvAppts.length (el volumen del tratamiento) queda por turno.
+            getProfessionals(app).forEach(p => {
                 pBreakdown[p.id] = {
                     id: p.id,
                     name: `${p.first_name} ${p.last_name}`,
                     count: (pBreakdown[p.id]?.count || 0) + 1,
                     color: p.color
                 }
-            }
+            })
         })
 
         const sortedProfs = Object.values(pBreakdown).sort((a, b) => b.count - a.count)
