@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import { format } from 'date-fns'
 
 export function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs))
@@ -38,4 +39,20 @@ export function monthsProgress(startDate: string | null | undefined, totalMonths
     const vence = new Date(start)
     vence.setMonth(vence.getMonth() + total)
     return { transcurridos, restantes, vence, activa: now < vence }
+}
+
+// Fecha LOCAL en formato 'yyyy-MM-dd'. No usar toISOString().split('T')[0]: devuelve la fecha
+// en UTC, y en Uruguay (UTC-3) a partir de las 21:00 da el día siguiente.
+export function localDateStr(d: Date = new Date()): string {
+    return format(d, 'yyyy-MM-dd')
+}
+
+// Rango de días locales ('yyyy-MM-dd', ambos inclusive) como instantes ISO para filtrar
+// timestamps: desde las 00:00 locales de `from` hasta las 00:00 locales del día siguiente a
+// `to`. Usar con .gte(startIso) y .lt(endIso).
+export function localDayRangeIso(from: string, to: string) {
+    const start = new Date(`${from}T00:00:00`)
+    const end = new Date(`${to}T00:00:00`)
+    end.setDate(end.getDate() + 1)
+    return { startIso: start.toISOString(), endIso: end.toISOString() }
 }

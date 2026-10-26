@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { ArrowLeft, Calendar, CalendarDays, FileText, CreditCard, Plus, Ticket, CheckCircle2, X, User, Pencil, Trash2, ImageIcon, ChevronLeft, ChevronRight, Play, Pause, Images, AlertCircle, ChevronDown, ChevronUp, Lock } from 'lucide-react'
-import { cn, formatMoney, monthsProgress } from '../../lib/utils'
+import { cn, formatMoney, monthsProgress, localDateStr } from '../../lib/utils'
 import { shiftCuponeraSessionIndexes } from '../../lib/cuponeras'
 import { CurrencyToggle, ZonesPicker } from '../../components/CuponeraFields'
 
@@ -18,6 +18,20 @@ type ProfessionalRelation = ProfessionalRef | ProfessionalRef[] | null | undefin
 interface AppointmentProfessionalsSource {
     professionals?: ProfessionalRelation
     appointment_professionals?: { professionals?: ProfessionalRelation }[] | null
+}
+
+// Reparte un monto total entre varios ítems en proporción a sus pesos (en partes iguales si
+// ninguno tiene peso). Redondea a centésimos y deja el resto en el último para que la suma
+// dé exactamente el total.
+function splitAmount(total: number, weights: number[]): number[] {
+    const sumWeights = weights.reduce((s, w) => s + w, 0)
+    const parts = weights.map(w => {
+        const share = sumWeights > 0 ? w / sumWeights : 1 / weights.length
+        return Math.round(total * share * 100) / 100
+    })
+    const allButLast = parts.slice(0, -1).reduce((s, p) => s + p, 0)
+    parts[parts.length - 1] = Math.round((total - allButLast) * 100) / 100
+    return parts
 }
 
 export function PatientDetails() {
@@ -39,7 +53,7 @@ export function PatientDetails() {
         cuponera_type: 'sessions' as 'sessions' | 'months',
         total_sessions: 8,
         total_months: 3,
-        start_date: new Date().toISOString().split('T')[0],
+        start_date: localDateStr(),
         currency: 'UYU' as 'UYU' | 'USD',
         body_zones: [] as string[],
         invoice_number: '',
@@ -99,7 +113,7 @@ export function PatientDetails() {
         professional_id: '',
         notes: '',
         data: {}, // Parámetros específicos JSON
-        date: new Date().toISOString().split('T')[0]
+        date: localDateStr()
     })
 
     // Fotos de historia clínica
@@ -196,7 +210,7 @@ export function PatientDetails() {
             .select(`
                 id, start_time, end_time, status, notes, cuponera_id, is_unpaid, payment_amount, receipt_number, cuponera_session_index,
                 appointment_patients!inner(patient_id),
-                services(id, name),
+                services(id, name, price),
                 professionals(id, first_name, last_name),
                 appointment_professionals(professionals(id, first_name, last_name))
             `)
@@ -298,7 +312,7 @@ export function PatientDetails() {
 
             if (!error) {
                 setIsCuponeraModalOpen(false)
-                setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: new Date().toISOString().split('T')[0], currency: 'UYU', body_zones: [], invoice_number: '', amount_paid: '', is_paid: true })
+                setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: localDateStr(), currency: 'UYU', body_zones: [], invoice_number: '', amount_paid: '', is_paid: true })
                 loadData()
             } else {
                 console.error('Error creating monthly cuponera:', error)
@@ -331,7 +345,7 @@ export function PatientDetails() {
                 }
 
                 setIsCuponeraModalOpen(false)
-                setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: new Date().toISOString().split('T')[0], currency: 'UYU', body_zones: [], invoice_number: '', amount_paid: '', is_paid: true })
+                setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: localDateStr(), currency: 'UYU', body_zones: [], invoice_number: '', amount_paid: '', is_paid: true })
                 loadData()
             } else {
                 console.error('Error creating cuponera:', error)
@@ -344,14 +358,26 @@ export function PatientDetails() {
         const unpaidAppts = appointments.filter(a => a.is_unpaid)
         if (unpaidAppts.length === 0) return
 
-        const { error } = await supabase
-            .from('appointments')
-            .update({
-                is_unpaid: false,
-                payment_amount: debtPaymentForm.amount_paid ? parseFloat(debtPaymentForm.amount_paid) : null,
-                receipt_number: debtPaymentForm.receipt_number || null
-            })
-            .in('id', unpaidAppts.map(a => a.id))
+        // El monto abonado es el TOTAL de la deuda. Antes se escribía completo en cada turno
+        // impago y Contabilidad lo sumaba una vez por turno. Ahora se reparte entre los turnos en
+        // proporción al precio de lista de cada servicio, así la suma coincide con lo cobrado.
+        // Sin monto, cada turno queda en null y Contabilidad usa el precio de lista (como antes).
+        const total = debtPaymentForm.amount_paid ? parseFloat(debtPaymentForm.amount_paid) : null
+        const amounts = total === null || Number.isNaN(total)
+            ? unpaidAppts.map(() => null)
+            : splitAmount(total, unpaidAppts.map(a => Number(a.services?.price) || 0))
+
+        const results = await Promise.all(unpaidAppts.map((a, i) =>
+            supabase
+                .from('appointments')
+                .update({
+                    is_unpaid: false,
+                    payment_amount: amounts[i],
+                    receipt_number: debtPaymentForm.receipt_number || null
+                })
+                .eq('id', a.id)
+        ))
+        const error = results.find(r => r.error)?.error
 
         if (!error) {
             setIsDebtModalOpen(false)
@@ -373,7 +399,7 @@ export function PatientDetails() {
             professional_id: '',
             notes: '',
             data: {},
-            date: new Date().toISOString().split('T')[0]
+            date: localDateStr()
         });
         setIsHistoryModalOpen(true);
     }
@@ -406,7 +432,7 @@ export function PatientDetails() {
             service_type: entry.service_type || '',
             professional_id: p ? entry.professional_id || '' : '',
             notes: (entry.notes || '').replace(/\[CUPONERA:[^\]]+\]\s*/, ''),
-            date: new Date(entry.created_at).toISOString().split('T')[0]
+            date: localDateStr(new Date(entry.created_at))
         });
         setIsEditingHistory(true);
         setConfirmDeleteHistory(false);
@@ -441,9 +467,10 @@ export function PatientDetails() {
         if (!id) return
 
         let createdAt = new Date().toISOString()
-        const todayStr = new Date().toISOString().split('T')[0]
+        const todayStr = localDateStr()
         if (historyForm.date && historyForm.date !== todayStr) {
-            createdAt = new Date(`${historyForm.date}T12:00:00Z`).toISOString()
+            // Mediodía local del día elegido
+            createdAt = new Date(`${historyForm.date}T12:00:00`).toISOString()
         }
 
         // If we are consuming a session, prefix the notes with the cuponera tag
@@ -525,7 +552,7 @@ export function PatientDetails() {
             setIsHistoryModalOpen(false)
             setPendingPhotos([])
             setPendingPreviews([])
-            setHistoryForm({ service_type: '', professional_id: '', notes: '', data: {}, date: new Date().toISOString().split('T')[0] })
+            setHistoryForm({ service_type: '', professional_id: '', notes: '', data: {}, date: localDateStr() })
             setSelectedCuponeraForConsuming(null)
             loadData()
         } else {
@@ -554,12 +581,14 @@ export function PatientDetails() {
 
         setUploadingPhotos(true)
         try {
+            // Si cambió el día, se mueve la entrada a ese día conservando la hora local original.
+            // Antes se comparaba contra HOY (no se podía mover una entrada a hoy) y se armaba la
+            // fecha con la hora UTC, que de noche caía en otro día.
             let createdAt = selectedHistoryEntry.created_at
-            const todayStr = new Date().toISOString().split('T')[0]
-            if (editHistoryForm.date && editHistoryForm.date !== todayStr) {
-                const existing = new Date(selectedHistoryEntry.created_at)
-                const time = `${String(existing.getUTCHours()).padStart(2,'0')}:${String(existing.getUTCMinutes()).padStart(2,'0')}:00`
-                createdAt = new Date(`${editHistoryForm.date}T${time}Z`).toISOString()
+            const existing = new Date(selectedHistoryEntry.created_at)
+            if (editHistoryForm.date && editHistoryForm.date !== localDateStr(existing)) {
+                const time = `${String(existing.getHours()).padStart(2,'0')}:${String(existing.getMinutes()).padStart(2,'0')}:00`
+                createdAt = new Date(`${editHistoryForm.date}T${time}`).toISOString()
             }
 
             const { error } = await supabase
@@ -1714,7 +1743,7 @@ export function PatientDetails() {
                             </div>
 
                             <div className="pt-4 flex justify-end gap-3 mt-4">
-                                <button type="button" onClick={() => { setIsCuponeraModalOpen(false); setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: new Date().toISOString().split('T')[0], currency: 'UYU', body_zones: [], invoice_number: '', amount_paid: '', is_paid: true }) }} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer">
+                                <button type="button" onClick={() => { setIsCuponeraModalOpen(false); setCuponeraForm({ service_id: '', cuponera_type: 'sessions', total_sessions: 8, total_months: 3, start_date: localDateStr(), currency: 'UYU', body_zones: [], invoice_number: '', amount_paid: '', is_paid: true }) }} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer">
                                     Cancelar
                                 </button>
                                 <button type="submit" className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md shadow hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background cursor-pointer">
@@ -2291,7 +2320,7 @@ export function PatientDetails() {
                                                     service_type: selectedHistoryEntry.service_type || '',
                                                     professional_id: p ? selectedHistoryEntry.professional_id || '' : '',
                                                     notes: (selectedHistoryEntry.notes || '').replace(/\[CUPONERA:[^\]]+\]\s*/, ''),
-                                                    date: new Date(selectedHistoryEntry.created_at).toISOString().split('T')[0]
+                                                    date: localDateStr(new Date(selectedHistoryEntry.created_at))
                                                 })
                                                 setIsEditingHistory(true)
                                                 setConfirmDeleteHistory(false)
@@ -2599,7 +2628,7 @@ export function PatientDetails() {
                                 <h4 className="text-sm font-semibold text-foreground pb-2 border-b border-border/40">Pago Directo</h4>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-1.5">
-                                        <label className="text-xs font-medium text-foreground">Monto Abonado (opcional)</label>
+                                        <label className="text-xs font-medium text-foreground">Monto total abonado (opcional)</label>
                                         <input
                                             type="number"
                                             step="0.01"

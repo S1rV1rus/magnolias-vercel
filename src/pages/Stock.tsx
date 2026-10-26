@@ -6,7 +6,7 @@ import {
     ArrowUpRight, ArrowDownRight, History, Search, Filter, 
     RefreshCw, User, Calendar, FileText, CheckCircle2, Tag
 } from 'lucide-react'
-import { cn } from '../lib/utils'
+import { cn, localDateStr } from '../lib/utils'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -67,9 +67,9 @@ export function Stock() {
     // Period for the consumption-per-label report (defaults to the current month)
     const [rangeFrom, setRangeFrom] = useState(() => {
         const d = new Date()
-        return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10)
+        return localDateStr(new Date(d.getFullYear(), d.getMonth(), 1))
     })
-    const [rangeTo, setRangeTo] = useState(() => new Date().toISOString().slice(0, 10))
+    const [rangeTo, setRangeTo] = useState(() => localDateStr())
     
     // Modal states
     const [itemModalOpen, setItemModalOpen] = useState(false)
@@ -157,6 +157,10 @@ export function Stock() {
                 triggerSuccess('Insumo actualizado exitosamente')
             } else {
                 // Create new item
+                // Se crea en 0: el stock inicial entra como movimiento 'addition' y el trigger
+                // trg_update_stock_quantity lo suma. Antes se insertaba además quantity=initial_stock
+                // y el trigger lo volvía a sumar, duplicando el stock inicial.
+                const initialStock = Number(itemForm.initial_stock)
                 const { data: newItem, error: createError } = await supabase
                     .from('stock_items')
                     .insert({
@@ -165,25 +169,42 @@ export function Stock() {
                         description: itemForm.description.trim() || null,
                         label: itemForm.label.trim() || null,
                         min_quantity: Number(itemForm.min_quantity),
-                        quantity: Number(itemForm.initial_stock)
+                        quantity: 0
                     })
                     .select()
                     .single()
 
                 if (createError) throw createError
 
-                // If initial stock is > 0, register a transaction for auditing
-                if (newItem && Number(itemForm.initial_stock) > 0 && currentUserId) {
-                    await supabase
-                        .from('stock_transactions')
-                        .insert({
-                            item_id: newItem.id,
-                            type: 'addition',
-                            quantity: Number(itemForm.initial_stock),
-                            user_id: currentUserId,
-                            user_name: defaultStaffName,
-                            note: 'Stock inicial cargado al registrar el producto'
-                        })
+                if (newItem && initialStock > 0) {
+                    const { error: txError } = currentUserId
+                        ? await supabase
+                            .from('stock_transactions')
+                            .insert({
+                                item_id: newItem.id,
+                                type: 'addition',
+                                quantity: initialStock,
+                                user_id: currentUserId,
+                                user_name: defaultStaffName,
+                                note: 'Stock inicial cargado al registrar el producto'
+                            })
+                        : { error: new Error('Sin usuario para registrar el movimiento') }
+
+                    // Si el movimiento no se pudo registrar (o el trigger no lo sumó), se carga
+                    // la cantidad directo para no dejar el insumo en 0.
+                    const { data: saved } = await supabase
+                        .from('stock_items')
+                        .select('quantity')
+                        .eq('id', newItem.id)
+                        .single()
+                    if (txError || Number(saved?.quantity) !== initialStock) {
+                        if (txError) console.error('Error registrando stock inicial:', txError)
+                        const { error: qtyError } = await supabase
+                            .from('stock_items')
+                            .update({ quantity: initialStock })
+                            .eq('id', newItem.id)
+                        if (qtyError) throw qtyError
+                    }
                 }
                 triggerSuccess('Insumo creado exitosamente')
             }

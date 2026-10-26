@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Calendar, dateFnsLocalizer, Views } from 'react-big-calendar'
 import type { View } from 'react-big-calendar'
-import { format, parse, startOfWeek, getDay } from 'date-fns'
+import { format, parse, startOfWeek, getDay, addDays, addMonths, startOfMonth } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Plus, X, UserPlus, Trash2, CheckCircle2, Gift } from 'lucide-react'
 import { supabase } from '../lib/supabase'
@@ -15,6 +15,26 @@ import { findGiftCardByCode, redeemGiftCard, releaseGiftCard, GIFT_CARD_CONSUMED
 const roundToNearest30 = (date: Date): Date => {
     const ms = 1000 * 60 * 30
     return new Date(Math.ceil(date.getTime() / ms) * ms)
+}
+
+// Fallback de lectura para los turnos históricos, anteriores al check "sin cargo": si la nota
+// indica regalo, cortesía o voucher, se asume sin cargo. Se busca por palabra completa y sin
+// acentos ("beca" ya no matchea "Rebeca"), y solo se usa cuando el turno no tiene cuponera ni
+// está marcado con deuda: un dato explícito siempre gana sobre el texto libre.
+const NO_CHARGE_NOTE_RE = /\b(regalos?|vouchers?|big ?box|cortesias?|becas?|gratis|sorteos?|canjes?)\b/
+function notesSuggestNoCharge(notes?: string | null): boolean {
+    if (!notes) return false
+    const normalized = notes.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    return NO_CHARGE_NOTE_RE.test(normalized)
+}
+
+// Columnas mínimas de un turno para numerar las sesiones de su cuponera
+interface CuponeraApptRow {
+    id: string
+    start_time: string
+    status: string
+    cuponera_id: string
+    cuponera_session_index: number | null
 }
 
 const locales = { 'es': es }
@@ -214,25 +234,6 @@ function AppointmentEvent({ event }: { event: any }) {
             };
         }
 
-        // Fallback de lectura para los turnos históricos, anteriores al check "sin cargo":
-        // si la nota indica regalo, cortesía o voucher, se asume pagado/sin cargo
-        const notes = (event.raw.app?.notes || '').toLowerCase();
-        const hasSpecialPayment = 
-            notes.includes('regalo') || 
-            notes.includes('voucher') || 
-            notes.includes('bigbox') || 
-            notes.includes('big box') || 
-            notes.includes('cortesia') || 
-            notes.includes('cortesía') || 
-            notes.includes('beca') || 
-            notes.includes('gratis') || 
-            notes.includes('sorteo') ||
-            notes.includes('canje');
-
-        if (hasSpecialPayment) {
-            return { status: 'pago' as const, label: 'Pagado' };
-        }
-
         const isUsingCuponera = !!event.raw.app?.cuponera_id;
         const cuponera = event.raw.cuponera;
 
@@ -251,6 +252,8 @@ function AppointmentEvent({ event }: { event: any }) {
         } else {
             if (event.raw.app?.is_unpaid) {
                 return { status: 'impago' as const, label: 'Falta Pagar' };
+            } else if (notesSuggestNoCharge(event.raw.app?.notes)) {
+                return { status: 'pago' as const, label: 'Pagado' };
             } else if (event.status === 'pendiente') {
                 return { status: 'pendiente' as const, label: 'A Cobrar' };
             }
@@ -734,9 +737,19 @@ export function Appointments() {
     }, [isModalOpen, selectedEvent])
 
 
-    useEffect(() => { fetchData() }, [])
+    // Solo se traen los turnos del mes visible ± 7 días (cubre las semanas que cruzan de mes).
+    // Antes se traían TODOS, y PostgREST corta en 1000 filas: pasado ese número la agenda
+    // dejaba de mostrar turnos sin avisar. Se vuelve a pedir al cambiar de mes.
+    const monthKey = format(date, 'yyyy-MM')
+    const fetchSeq = useRef(0)
+
+    useEffect(() => { fetchData() }, [monthKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
     async function fetchData() {
+        const seq = ++fetchSeq.current
+        const rangeStart = addDays(startOfMonth(date), -7)
+        const rangeEnd = addDays(startOfMonth(addMonths(date, 1)), 7)
+
         const { data: appts } = await supabase
             .from('appointments')
             .select(`
@@ -749,6 +762,8 @@ export function Appointments() {
                 cuponeras(id, total_sessions, used_sessions, is_paid, cuponera_type, total_months, start_date),
                 gift_cards(id, code, status, amount, currency, service_id, redeemed_at)
             `)
+            .lt('start_time', rangeEnd.toISOString())
+            .gt('end_time', rangeStart.toISOString())
 
         if (appts) {
             // Número de sesión REAL por turno (cuponeras por sesiones):
@@ -756,17 +771,38 @@ export function Appointments() {
             // - turno pendiente: se PROYECTA sobre used_sessions (ej. used=5 → próximos 6, 7…),
             //   marcado como "a confirmar"; al confirmarlo se sella el número real.
             const sessionInfoByAppt: Record<string, { number: number; projected: boolean }> = {}
-            const byCuponera: Record<string, any[]> = {}
+            const cuponeraById: Record<string, { used_sessions?: number | null }> = {}
+            const pendingCuponeraIds = new Set<string>()
             appts.forEach(a => {
                 const cup = Array.isArray(a.cuponeras) ? a.cuponeras[0] : a.cuponeras
                 if (cup && cup.id && cup.cuponera_type !== 'months' && a.status !== 'cancelado') {
-                    if (!byCuponera[cup.id]) byCuponera[cup.id] = []
-                    byCuponera[cup.id].push(a)
+                    cuponeraById[cup.id] = cup
+                    if (a.cuponera_session_index == null) pendingCuponeraIds.add(cup.id)
                 }
             })
-            Object.values(byCuponera).forEach(list => {
-                const cup = Array.isArray(list[0].cuponeras) ? list[0].cuponeras[0] : list[0].cuponeras
-                const used = cup?.used_sessions ?? 0
+            // La proyección de los pendientes depende de TODOS los pendientes de la cuponera, no
+            // solo los del rango visible: se traen aparte (columnas mínimas) para no correr la cuenta.
+            let cuponeraAppts: CuponeraApptRow[] = appts.filter(a => a.cuponera_id && cuponeraById[a.cuponera_id] && a.status !== 'cancelado')
+            if (pendingCuponeraIds.size) {
+                const { data: allCupAppts } = await supabase
+                    .from('appointments')
+                    .select('id, start_time, status, cuponera_id, cuponera_session_index')
+                    .in('cuponera_id', [...pendingCuponeraIds])
+                    .neq('status', 'cancelado')
+                if (allCupAppts) {
+                    cuponeraAppts = [
+                        ...cuponeraAppts.filter(a => !pendingCuponeraIds.has(a.cuponera_id)),
+                        ...allCupAppts,
+                    ]
+                }
+            }
+            const byCuponera: Record<string, CuponeraApptRow[]> = {}
+            cuponeraAppts.forEach(a => {
+                if (!byCuponera[a.cuponera_id]) byCuponera[a.cuponera_id] = []
+                byCuponera[a.cuponera_id].push(a)
+            })
+            Object.entries(byCuponera).forEach(([cuponeraId, list]) => {
+                const used = cuponeraById[cuponeraId]?.used_sessions ?? 0
                 // consumidos con índice sellado
                 list.forEach(a => {
                     if (a.cuponera_session_index != null) {
@@ -822,13 +858,17 @@ export function Appointments() {
                     raw: { app, patientList, patient: patientList[0] ?? null, service, professional, professionalList, room, cuponera, giftCard: giftCardRow ?? null, cuponeraSessionNumber: sessionInfoByAppt[app.id]?.number, cuponeraSessionProjected: sessionInfoByAppt[app.id]?.projected ?? false },
                 }
             })
+            // Si mientras tanto se navegó a otro mes, esta respuesta ya no corresponde
+            if (seq !== fetchSeq.current) return
             setEvents(formatted)
         }
 
-        const { data: pData } = await supabase.from('patients').select('id, first_name, last_name, document_id').order('last_name')
-        const { data: sData } = await supabase.from('services').select('id, name, duration_minutes')
-        const { data: profData } = await supabase.from('professionals').select('id, first_name, last_name').eq('is_active', true)
-        const { data: rData } = await supabase.from('rooms').select('id, name').eq('is_active', true).order('name')
+        const [{ data: pData }, { data: sData }, { data: profData }, { data: rData }] = await Promise.all([
+            supabase.from('patients').select('id, first_name, last_name, document_id').order('last_name'),
+            supabase.from('services').select('id, name, duration_minutes'),
+            supabase.from('professionals').select('id, first_name, last_name').eq('is_active', true),
+            supabase.from('rooms').select('id, name').eq('is_active', true).order('name'),
+        ])
 
         if (pData) setPatients(pData)
         if (sData) setServices(sData)

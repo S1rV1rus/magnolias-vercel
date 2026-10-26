@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { cn, formatMoney, currencySymbol } from '../lib/utils'
+import { cn, formatMoney, currencySymbol, localDateStr, localDayRangeIso } from '../lib/utils'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -107,8 +107,8 @@ export function Accounting() {
                 return
         }
 
-        setStartDate(start.toISOString().split('T')[0])
-        setEndDate(end.toISOString().split('T')[0])
+        setStartDate(localDateStr(start))
+        setEndDate(localDateStr(end))
     }, [quickRange])
 
     // ── Fetch Data ─────────────────────────────────────────────────────────────
@@ -116,8 +116,7 @@ export function Accounting() {
         if (!startDate || !endDate) return
         setLoading(true)
 
-        const startIso = `${startDate}T00:00:00Z`
-        const endIso = `${endDate}T23:59:59Z`
+        const { startIso, endIso } = localDayRangeIso(startDate, endDate)
 
         try {
             // 1. Cuponeras vendidas en el período
@@ -130,7 +129,7 @@ export function Accounting() {
                     services!inner(id, name)
                 `)
                 .gte('created_at', startIso)
-                .lte('created_at', endIso)
+                .lt('created_at', endIso)
                 .order('created_at', { ascending: false })
 
             if (cupData) {
@@ -156,7 +155,7 @@ export function Accounting() {
                 .in('status', ['confirmado', 'completado'])
                 .is('cuponera_id', null)
                 .gte('start_time', startIso)
-                .lte('start_time', endIso)
+                .lt('start_time', endIso)
                 .order('start_time', { ascending: false })
 
             if (srvData) {

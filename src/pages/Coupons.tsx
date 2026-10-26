@@ -4,7 +4,7 @@ import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Plus, Ticket, Search, CheckCircle2, X, Pencil, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { cn, formatMoney, monthsProgress } from '../lib/utils'
+import { cn, formatMoney, monthsProgress, localDateStr } from '../lib/utils'
 import { CurrencyToggle, ZonesPicker } from '../components/CuponeraFields'
 
 const initialForm = {
@@ -15,7 +15,7 @@ const initialForm = {
     used_sessions: 0,
     total_months: 3,
     used_months: 0,
-    start_date: new Date().toISOString().split('T')[0],
+    start_date: localDateStr(),
     currency: 'UYU' as 'UYU' | 'USD',
     body_zones: [] as string[],
     invoice_number: '',
@@ -245,7 +245,7 @@ export function Coupons() {
             used_sessions: c.used_sessions ?? 0,
             total_months: c.total_months ?? 3,
             used_months: c.used_months ?? 0,
-            start_date: c.start_date || new Date().toISOString().split('T')[0],
+            start_date: c.start_date || localDateStr(),
             currency: c.currency === 'USD' ? 'USD' : 'UYU',
             body_zones: Array.isArray(c.body_zones) ? c.body_zones : [],
             invoice_number: c.invoice_number || '',

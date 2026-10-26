@@ -12,7 +12,7 @@ import {
     Filter,
     RefreshCw
 } from 'lucide-react'
-import { cn } from '../lib/utils'
+import { cn, localDateStr, localDayRangeIso } from '../lib/utils'
 
 interface Service {
     id: string
@@ -94,8 +94,8 @@ export function Metrics() {
                 return
         }
 
-        setStartDate(start.toISOString().split('T')[0])
-        setEndDate(end.toISOString().split('T')[0])
+        setStartDate(localDateStr(start))
+        setEndDate(localDateStr(end))
     }, [quickRange])
 
     async function fetchData() {
@@ -115,8 +115,7 @@ export function Metrics() {
 
             // 3. Fetch appointments in date range
             if (startDate && endDate) {
-                const startIso = `${startDate}T00:00:00Z`
-                const endIso = `${endDate}T23:59:59Z`
+                const { startIso, endIso } = localDayRangeIso(startDate, endDate)
 
                 const { data: apptsData } = await supabase
                     .from('appointments')
@@ -127,7 +126,7 @@ export function Metrics() {
                         appointment_professionals(professionals(id, first_name, last_name, color))
                     `)
                     .gte('start_time', startIso)
-                    .lte('start_time', endIso)
+                    .lt('start_time', endIso)
 
                 if (apptsData) {
                     setAppointments(apptsData as unknown as Appointment[])
