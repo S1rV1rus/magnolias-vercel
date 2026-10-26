@@ -41,6 +41,20 @@ export function monthsProgress(startDate: string | null | undefined, totalMonths
     return { transcurridos, restantes, vence, activa: now < vence }
 }
 
+// Reparte un monto total entre varios ítems en proporción a sus pesos (en partes iguales si
+// ninguno tiene peso). Redondea a centésimos y deja el resto en el último para que la suma
+// dé exactamente el total.
+export function splitAmount(total: number, weights: number[]): number[] {
+    const sumWeights = weights.reduce((s, w) => s + w, 0)
+    const parts = weights.map(w => {
+        const share = sumWeights > 0 ? w / sumWeights : 1 / weights.length
+        return Math.round(total * share * 100) / 100
+    })
+    const allButLast = parts.slice(0, -1).reduce((s, p) => s + p, 0)
+    parts[parts.length - 1] = Math.round((total - allButLast) * 100) / 100
+    return parts
+}
+
 // Fecha LOCAL en formato 'yyyy-MM-dd'. No usar toISOString().split('T')[0]: devuelve la fecha
 // en UTC, y en Uruguay (UTC-3) a partir de las 21:00 da el día siguiente.
 export function localDateStr(d: Date = new Date()): string {

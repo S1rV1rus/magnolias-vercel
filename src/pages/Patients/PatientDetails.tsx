@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { ArrowLeft, Calendar, CalendarDays, FileText, CreditCard, Plus, Ticket, CheckCircle2, X, User, Pencil, Trash2, ImageIcon, ChevronLeft, ChevronRight, Play, Pause, Images, AlertCircle, ChevronDown, ChevronUp, Lock } from 'lucide-react'
 import { cn, formatMoney, monthsProgress, localDateStr } from '../../lib/utils'
 import { shiftCuponeraSessionIndexes } from '../../lib/cuponeras'
+import { debtPaymentAmounts } from '../../lib/appointments'
 import { CurrencyToggle, ZonesPicker } from '../../components/CuponeraFields'
 
 interface ProfessionalRef {
@@ -18,20 +19,6 @@ type ProfessionalRelation = ProfessionalRef | ProfessionalRef[] | null | undefin
 interface AppointmentProfessionalsSource {
     professionals?: ProfessionalRelation
     appointment_professionals?: { professionals?: ProfessionalRelation }[] | null
-}
-
-// Reparte un monto total entre varios ítems en proporción a sus pesos (en partes iguales si
-// ninguno tiene peso). Redondea a centésimos y deja el resto en el último para que la suma
-// dé exactamente el total.
-function splitAmount(total: number, weights: number[]): number[] {
-    const sumWeights = weights.reduce((s, w) => s + w, 0)
-    const parts = weights.map(w => {
-        const share = sumWeights > 0 ? w / sumWeights : 1 / weights.length
-        return Math.round(total * share * 100) / 100
-    })
-    const allButLast = parts.slice(0, -1).reduce((s, p) => s + p, 0)
-    parts[parts.length - 1] = Math.round((total - allButLast) * 100) / 100
-    return parts
 }
 
 export function PatientDetails() {
@@ -358,14 +345,8 @@ export function PatientDetails() {
         const unpaidAppts = appointments.filter(a => a.is_unpaid)
         if (unpaidAppts.length === 0) return
 
-        // El monto abonado es el TOTAL de la deuda. Antes se escribía completo en cada turno
-        // impago y Contabilidad lo sumaba una vez por turno. Ahora se reparte entre los turnos en
-        // proporción al precio de lista de cada servicio, así la suma coincide con lo cobrado.
-        // Sin monto, cada turno queda en null y Contabilidad usa el precio de lista (como antes).
-        const total = debtPaymentForm.amount_paid ? parseFloat(debtPaymentForm.amount_paid) : null
-        const amounts = total === null || Number.isNaN(total)
-            ? unpaidAppts.map(() => null)
-            : splitAmount(total, unpaidAppts.map(a => Number(a.services?.price) || 0))
+        // El monto abonado es el TOTAL de la deuda: se reparte entre los turnos impagos
+        const amounts = debtPaymentAmounts(debtPaymentForm.amount_paid, unpaidAppts)
 
         const results = await Promise.all(unpaidAppts.map((a, i) =>
             supabase

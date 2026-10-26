@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Calendar, dateFnsLocalizer, Views } from 'react-big-calendar'
 import type { View } from 'react-big-calendar'
-import { format, parse, startOfWeek, getDay, addDays, addMonths, startOfMonth } from 'date-fns'
+import { format, parse, startOfWeek, getDay } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Plus, X, UserPlus, Trash2, CheckCircle2, Gift } from 'lucide-react'
 import { supabase } from '../lib/supabase'
@@ -10,31 +10,12 @@ import { useAuth } from '../contexts/AuthContext'
 import { writeLog } from '../lib/logger'
 import { monthsProgress, formatMoney } from '../lib/utils'
 import { shiftCuponeraSessionIndexes } from '../lib/cuponeras'
+import { agendaFetchRange, notesSuggestNoCharge, projectCuponeraSessions, type CuponeraApptRow } from '../lib/appointments'
 import { findGiftCardByCode, redeemGiftCard, releaseGiftCard, GIFT_CARD_CONSUMED_STATUSES, type GiftCardRow } from '../lib/giftCards'
 
 const roundToNearest30 = (date: Date): Date => {
     const ms = 1000 * 60 * 30
     return new Date(Math.ceil(date.getTime() / ms) * ms)
-}
-
-// Fallback de lectura para los turnos históricos, anteriores al check "sin cargo": si la nota
-// indica regalo, cortesía o voucher, se asume sin cargo. Se busca por palabra completa y sin
-// acentos ("beca" ya no matchea "Rebeca"), y solo se usa cuando el turno no tiene cuponera ni
-// está marcado con deuda: un dato explícito siempre gana sobre el texto libre.
-const NO_CHARGE_NOTE_RE = /\b(regalos?|vouchers?|big ?box|cortesias?|becas?|gratis|sorteos?|canjes?)\b/
-function notesSuggestNoCharge(notes?: string | null): boolean {
-    if (!notes) return false
-    const normalized = notes.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-    return NO_CHARGE_NOTE_RE.test(normalized)
-}
-
-// Columnas mínimas de un turno para numerar las sesiones de su cuponera
-interface CuponeraApptRow {
-    id: string
-    start_time: string
-    status: string
-    cuponera_id: string
-    cuponera_session_index: number | null
 }
 
 const locales = { 'es': es }
@@ -747,8 +728,7 @@ export function Appointments() {
 
     async function fetchData() {
         const seq = ++fetchSeq.current
-        const rangeStart = addDays(startOfMonth(date), -7)
-        const rangeEnd = addDays(startOfMonth(addMonths(date, 1)), 7)
+        const { start: rangeStart, end: rangeEnd } = agendaFetchRange(date)
 
         const { data: appts } = await supabase
             .from('appointments')
@@ -766,11 +746,7 @@ export function Appointments() {
             .gt('end_time', rangeStart.toISOString())
 
         if (appts) {
-            // Número de sesión REAL por turno (cuponeras por sesiones):
-            // - turno consumido (confirmado/cancelado_tarde): usa el índice sellado en DB.
-            // - turno pendiente: se PROYECTA sobre used_sessions (ej. used=5 → próximos 6, 7…),
-            //   marcado como "a confirmar"; al confirmarlo se sella el número real.
-            const sessionInfoByAppt: Record<string, { number: number; projected: boolean }> = {}
+            // Número de sesión REAL por turno (cuponeras por sesiones): ver projectCuponeraSessions
             const cuponeraById: Record<string, { used_sessions?: number | null }> = {}
             const pendingCuponeraIds = new Set<string>()
             appts.forEach(a => {
@@ -796,25 +772,10 @@ export function Appointments() {
                     ]
                 }
             }
-            const byCuponera: Record<string, CuponeraApptRow[]> = {}
-            cuponeraAppts.forEach(a => {
-                if (!byCuponera[a.cuponera_id]) byCuponera[a.cuponera_id] = []
-                byCuponera[a.cuponera_id].push(a)
-            })
-            Object.entries(byCuponera).forEach(([cuponeraId, list]) => {
-                const used = cuponeraById[cuponeraId]?.used_sessions ?? 0
-                // consumidos con índice sellado
-                list.forEach(a => {
-                    if (a.cuponera_session_index != null) {
-                        sessionInfoByAppt[a.id] = { number: a.cuponera_session_index, projected: false }
-                    }
-                })
-                // pendientes (sin índice): proyectar en orden cronológico a partir de used_sessions
-                list
-                    .filter(a => a.cuponera_session_index == null)
-                    .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
-                    .forEach((a, i) => { sessionInfoByAppt[a.id] = { number: used + i + 1, projected: true } })
-            })
+            const sessionInfoByAppt = projectCuponeraSessions(
+                cuponeraAppts,
+                Object.fromEntries(Object.entries(cuponeraById).map(([id, c]) => [id, c.used_sessions])),
+            )
 
             const formatted = appts.map(app => {
                 // Lista de pacientes desde la tabla de unión
