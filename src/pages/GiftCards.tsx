@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { fetchAllRows } from '../lib/fetchAll'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Plus, Gift, Search, CheckCircle2, X, Pencil, Trash2, RotateCcw } from 'lucide-react'
@@ -123,8 +124,12 @@ export function GiftCards() {
             .order('created_at', { ascending: false })
         if (gData) setCards(gData)
 
-        const { data: pData } = await supabase.from('patients').select('id, first_name, last_name, document_id').order('last_name')
-        if (pData) setPatients(pData)
+        const { data: pData, error: pError } = await fetchAllRows(
+            (from, to) => supabase.from('patients').select('id, first_name, last_name, document_id')
+                .order('last_name').order('id').range(from, to)
+        )
+        if (pError) console.error('Error fetching patients:', pError)
+        else setPatients(pData)
         const { data: sData } = await supabase.from('services').select('id, name').eq('is_active', true).order('name')
         if (sData) setServices(sData)
         setLoading(false)
@@ -204,18 +209,41 @@ export function GiftCards() {
 
     const confirmRedeem = async () => {
         if (!redeemCard) return
-        const { error } = await supabase.from('gift_cards').update({
+        // Condicional (solo si sigue vigente), igual que el canje automático de la agenda: si
+        // otro turno u otra pestaña ya la canjeó, no se pisa ese canje.
+        const { data, error } = await supabase.from('gift_cards').update({
             status: 'usada',
             // Fecha local, no UTC (ver nota en src/lib/giftCards.ts)
             redeemed_at: format(new Date(), 'yyyy-MM-dd'),
             redeemed_service_id: redeemServiceId || redeemCard.service_id || null,
-        }).eq('id', redeemCard.id)
-        if (!error) { setRedeemCard(null); fetchData() }
-        else alert('Error al marcar como usada.')
+        }).eq('id', redeemCard.id).eq('status', 'vigente').select('id')
+        if (error) { alert('Error al marcar como usada.'); return }
+        if (!data?.length) alert('Esta gift card ya figuraba como usada (la canjeó un turno de la agenda u otra persona).')
+        setRedeemCard(null)
+        fetchData()
     }
 
     const reactivar = async (c: any) => {
-        if (!window.confirm('¿Reactivar esta gift card (volver a Vigente)?')) return
+        // Si un turno la usó, el turno sigue apuntando a la tarjeta: hay que desvincularlo. Si
+        // no, la tarjeta queda "vigente" pero no se puede usar en otro turno (una tarjeta paga
+        // un solo turno) y el turno viejo sigue mostrándola como su forma de pago.
+        const { data: linked, error: linkedError } = await supabase
+            .from('appointments')
+            .select('id, start_time')
+            .eq('gift_card_id', c.id)
+            .limit(1)
+        if (linkedError) { alert('Error al reactivar.'); return }
+        const appt = linked?.[0]
+        const msg = appt
+            ? `Esta gift card la usó el turno del ${format(new Date(appt.start_time), 'dd/MM/yyyy HH:mm')}. ` +
+              'Al reactivarla se desvincula de ese turno, que queda "sin cargo" sin tarjeta: revisalo en la agenda. ¿Reactivar?'
+            : '¿Reactivar esta gift card (volver a Vigente)?'
+        if (!window.confirm(msg)) return
+
+        if (appt) {
+            const { error: unlinkError } = await supabase.from('appointments').update({ gift_card_id: null }).eq('id', appt.id)
+            if (unlinkError) { alert('No se pudo desvincular la gift card del turno.'); return }
+        }
         const { error } = await supabase.from('gift_cards').update({ status: 'vigente', redeemed_at: null, redeemed_service_id: null }).eq('id', c.id)
         if (!error) fetchData()
         else alert('Error al reactivar.')

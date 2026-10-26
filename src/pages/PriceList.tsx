@@ -96,25 +96,31 @@ export function PriceList() {
             notes: form.notes.trim() || null,
         }
 
-        if (editingPack) {
-            await supabase.from('pack_prices').update(payload).eq('id', editingPack.id)
-        } else {
-            await supabase.from('pack_prices').insert(payload)
-        }
+        const { error } = editingPack
+            ? await supabase.from('pack_prices').update(payload).eq('id', editingPack.id)
+            : await supabase.from('pack_prices').insert(payload)
 
         setSaving(false)
+        if (error) {
+            // El modal queda abierto para no perder lo cargado
+            console.error('Error saving pack:', error)
+            alert('No se pudo guardar el pack. Intentá de nuevo.')
+            return
+        }
         closeModal()
         void fetchData()
     }
 
     async function handleDelete(id: string) {
-        await supabase.from('pack_prices').delete().eq('id', id)
+        const { error } = await supabase.from('pack_prices').delete().eq('id', id)
+        if (error) { console.error('Error deleting pack:', error); alert('No se pudo eliminar el pack.'); return }
         setConfirmDelete(null)
         void fetchData()
     }
 
     async function handleToggleActive(pack: PackPrice) {
-        await supabase.from('pack_prices').update({ is_active: !pack.is_active }).eq('id', pack.id)
+        const { error } = await supabase.from('pack_prices').update({ is_active: !pack.is_active }).eq('id', pack.id)
+        if (error) { console.error('Error toggling pack:', error); alert('No se pudo cambiar el estado del pack.') }
         void fetchData()
     }
 

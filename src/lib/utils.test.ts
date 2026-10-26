@@ -1,5 +1,30 @@
-import { describe, expect, it } from 'vitest'
-import { localDateStr, localDayRangeIso, splitAmount } from './utils'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { isCuponeraActive, localDateStr, localDayRangeIso, splitAmount } from './utils'
+
+describe('isCuponeraActive', () => {
+    afterEach(() => vi.useRealTimers())
+
+    it('un pase mensual vencido por fecha ya no está activo aunque is_active siga en true', () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(new Date('2026-10-26T12:00:00-03:00'))
+        // 3 meses desde el 1/6 → vence el 1/9
+        expect(isCuponeraActive({ cuponera_type: 'months', is_active: true, start_date: '2026-06-01', total_months: 3 })).toBe(false)
+        // 3 meses desde el 1/9 → vence el 1/12
+        expect(isCuponeraActive({ cuponera_type: 'months', is_active: true, start_date: '2026-09-01', total_months: 3 })).toBe(true)
+    })
+
+    it('respeta un is_active=false manual en los pases vigentes', () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(new Date('2026-10-26T12:00:00-03:00'))
+        expect(isCuponeraActive({ cuponera_type: 'months', is_active: false, start_date: '2026-09-01', total_months: 3 })).toBe(false)
+    })
+
+    it('las cuponeras por sesiones siguen usando is_active', () => {
+        expect(isCuponeraActive({ cuponera_type: 'sessions', is_active: true })).toBe(true)
+        expect(isCuponeraActive({ cuponera_type: 'sessions', is_active: false })).toBe(false)
+        expect(isCuponeraActive({ is_active: true })).toBe(true)
+    })
+})
 
 describe('zona horaria de los tests', () => {
     it('corre en hora de Uruguay (UTC-3)', () => {

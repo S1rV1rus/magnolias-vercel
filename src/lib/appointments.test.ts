@@ -2,10 +2,25 @@ import { describe, expect, it } from 'vitest'
 import {
     agendaFetchRange,
     debtPaymentAmounts,
+    isConsumedStatus,
     notesSuggestNoCharge,
     projectCuponeraSessions,
     type CuponeraApptRow,
 } from './appointments'
+
+describe('isConsumedStatus', () => {
+    it.each(['confirmado', 'cancelado_tarde', 'completado'])('"%s" consume sesión', s => {
+        expect(isConsumedStatus(s)).toBe(true)
+    })
+
+    it.each(['pendiente', 'cancelado', '', null, undefined])('%j no consume', s => {
+        expect(isConsumedStatus(s)).toBe(false)
+    })
+
+    it('pasar de completado a confirmado no cambia el consumo (antes sumaba otra sesión)', () => {
+        expect(isConsumedStatus('completado')).toBe(isConsumedStatus('confirmado'))
+    })
+})
 
 describe('notesSuggestNoCharge', () => {
     it.each([

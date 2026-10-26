@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { ArrowLeft, Calendar, CalendarDays, FileText, CreditCard, Plus, Ticket, CheckCircle2, X, User, Pencil, Trash2, ImageIcon, ChevronLeft, ChevronRight, Play, Pause, Images, AlertCircle, ChevronDown, ChevronUp, Lock } from 'lucide-react'
-import { cn, formatMoney, monthsProgress, localDateStr } from '../../lib/utils'
+import { cn, formatMoney, monthsProgress, localDateStr, isCuponeraActive } from '../../lib/utils'
 import { shiftCuponeraSessionIndexes } from '../../lib/cuponeras'
-import { debtPaymentAmounts } from '../../lib/appointments'
+import { debtPaymentAmounts, isConsumedStatus } from '../../lib/appointments'
 import { CurrencyToggle, ZonesPicker } from '../../components/CuponeraFields'
 
 interface ProfessionalRef {
@@ -212,7 +212,7 @@ export function PatientDetails() {
                 if (cup.cuponera_type === 'months') return cup
 
                 const apptRedemptions = aData.filter(
-                    (a: any) => a.cuponera_id === cup.id && ['confirmado', 'cancelado_tarde', 'completado'].includes(a.status)
+                    (a: any) => a.cuponera_id === cup.id && isConsumedStatus(a.status)
                 )
                 const historyRedemptions = hData.filter(
                     (h: any) => h.notes && h.notes.includes(`[CUPONERA:${cup.id}]`)
@@ -1329,7 +1329,7 @@ export function PatientDetails() {
                                     const isExhausted = isMonthly ? !(mp?.activa ?? true) : available <= 0
 
                                     const cuponeraRedemptions = isMonthly ? [] : [
-                                        ...appointments.filter(a => a.cuponera_id === cup.id && ['confirmado', 'cancelado_tarde', 'completado'].includes(a.status)).map(a => ({
+                                        ...appointments.filter(a => a.cuponera_id === cup.id && isConsumedStatus(a.status)).map(a => ({
                                             id: a.id,
                                             date: new Date(a.start_time),
                                             professionals: getApptProfessionals(a),
@@ -2386,9 +2386,9 @@ export function PatientDetails() {
                                             <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Estado</h4>
                                             <span className={cn(
                                                 "inline-flex px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wide",
-                                                selectedCuponera.is_active ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600"
+                                                isCuponeraActive(selectedCuponera) ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600"
                                             )}>
-                                                {selectedCuponera.is_active ? 'Activa' : 'Inactiva'}
+                                                {isCuponeraActive(selectedCuponera) ? 'Activa' : (selectedCuponera.cuponera_type === 'months' ? 'Vencida' : 'Inactiva')}
                                             </span>
                                         </div>
                                         <div className="bg-muted/30 p-4 rounded-lg border border-border/50">

@@ -184,8 +184,12 @@ export function Settings() {
             body: JSON.stringify({ action, auth_user_id }),
         })
         if (!resp.ok) {
-            const err = await resp.json()
+            const err = await resp.json().catch(() => ({}))
             console.error('manage-staff-user error:', err)
+            // Antes solo quedaba en consola: el profesional figuraba desactivado/eliminado pero
+            // podía seguir entrando al sistema
+            const what = action === 'enable' ? 'reactivar' : action === 'disable' ? 'bloquear' : 'eliminar'
+            alert(`Se guardó el cambio, pero no se pudo ${what} el acceso al sistema de esta persona: ${err.error || 'error desconocido'}. Volvé a intentarlo.`)
         }
     }
 
@@ -209,7 +213,7 @@ export function Settings() {
         const prof = professionals.find(p => p.id === id)
         const newStatus = !currentStatus
         const { error } = await supabase.from('professionals').update({ is_active: newStatus }).eq('id', id)
-        if (error) { console.error('Error toggling status:', error); return }
+        if (error) { console.error('Error toggling status:', error); alert('No se pudo cambiar el estado del profesional.'); return }
         // Sync with Supabase Auth: ban if deactivating, unban if activating
         if (prof?.auth_user_id) {
             await callManageStaff(newStatus ? 'enable' : 'disable', prof.auth_user_id)
@@ -271,12 +275,14 @@ export function Settings() {
             room_priority: servFormData.room_priority.length ? servFormData.room_priority : null
         }
 
-        if (editingServId) {
-            const { error } = await supabase.from('services').update(payload).eq('id', editingServId)
-            if (error) console.error('Error updating service:', error)
-        } else {
-            const { error } = await supabase.from('services').insert([payload])
-            if (error) console.error('Error creating service:', error)
+        const { error } = editingServId
+            ? await supabase.from('services').update(payload).eq('id', editingServId)
+            : await supabase.from('services').insert([payload])
+        if (error) {
+            // El modal queda abierto para no perder lo cargado
+            console.error('Error saving service:', error)
+            alert('No se pudo guardar el servicio. Intentá de nuevo.')
+            return
         }
         setIsServModalOpen(false)
         fetchServices()
@@ -285,14 +291,20 @@ export function Settings() {
     const handleDeleteServ = async (id: string) => {
         if (window.confirm('¿Seguro que deseas eliminar este servicio? Los turnos o cuponeras asociados podrían verse afectados.')) {
             const { error } = await supabase.from('services').delete().eq('id', id)
-            if (error) console.error('Error deleting:', error)
+            if (error) {
+                console.error('Error deleting:', error)
+                alert('No se pudo eliminar el servicio. Si tiene turnos o cuponeras asociados, desactivalo en lugar de eliminarlo.')
+            }
             fetchServices()
         }
     }
 
     const handleToggleServActive = async (id: string, currentStatus: boolean) => {
         const { error } = await supabase.from('services').update({ is_active: !currentStatus }).eq('id', id)
-        if (error) console.error('Error toggling status:', error)
+        if (error) {
+            console.error('Error toggling status:', error)
+            alert('No se pudo cambiar el estado del servicio.')
+        }
         fetchServices()
     }
 

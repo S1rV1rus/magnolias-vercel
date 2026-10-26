@@ -127,34 +127,40 @@ export function Blog() {
         e.preventDefault()
         setSaving(true)
 
-        if (editingNote) {
-            await supabase.from('blog_notes').update({
+        const { error } = editingNote
+            ? await supabase.from('blog_notes').update({
                 title: form.title.trim(),
                 content: form.content.trim(),
                 color: form.color,
             }).eq('id', editingNote.id)
-        } else {
-            await supabase.from('blog_notes').insert({
+            : await supabase.from('blog_notes').insert({
                 title: form.title.trim(),
                 content: form.content.trim(),
                 color: form.color,
                 author_name: userName,
                 auth_user_id: currentUserId,
             })
-        }
 
         setSaving(false)
+        if (error) {
+            // El modal queda abierto para no perder lo escrito
+            console.error('Error saving note:', error)
+            alert('No se pudo guardar la nota. Intentá de nuevo.')
+            return
+        }
         closeModal()
         void fetchNotes()
     }
 
     async function handleTogglePin(note: BlogNote) {
-        await supabase.from('blog_notes').update({ is_pinned: !note.is_pinned }).eq('id', note.id)
+        const { error } = await supabase.from('blog_notes').update({ is_pinned: !note.is_pinned }).eq('id', note.id)
+        if (error) { console.error('Error pinning note:', error); alert('No se pudo fijar la nota.') }
         void fetchNotes()
     }
 
     async function handleDelete(id: string) {
-        await supabase.from('blog_notes').delete().eq('id', id)
+        const { error } = await supabase.from('blog_notes').delete().eq('id', id)
+        if (error) { console.error('Error deleting note:', error); alert('No se pudo eliminar la nota.'); return }
         setConfirmDelete(null)
         setReadingNote(null)
         void fetchNotes()

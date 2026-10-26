@@ -41,6 +41,21 @@ export function monthsProgress(startDate: string | null | undefined, totalMonths
     return { transcurridos, restantes, vence, activa: now < vence }
 }
 
+// ¿La cuponera sigue vigente? Un pase mensual vence por FECHA (monthsProgress): su is_active
+// en DB no se actualiza solo cuando pasan los meses, así que un pase vencido figuraba activo
+// para siempre y la agenda lo seguía vinculando. Se respeta igual un is_active=false manual.
+// Para las de sesiones manda is_active, que la agenda y la ficha mantienen al consumir.
+export function isCuponeraActive(c: {
+    cuponera_type?: string | null
+    is_active?: boolean | null
+    start_date?: string | null
+    total_months?: number | null
+}): boolean {
+    if (c.is_active === false) return false
+    if (c.cuponera_type === 'months') return monthsProgress(c.start_date, c.total_months).activa
+    return true
+}
+
 // Reparte un monto total entre varios ítems en proporción a sus pesos (en partes iguales si
 // ninguno tiene peso). Redondea a centésimos y deja el resto en el último para que la suma
 // dé exactamente el total.

@@ -13,6 +13,16 @@ export function notesSuggestNoCharge(notes?: string | null): boolean {
     return NO_CHARGE_NOTE_RE.test(normalized)
 }
 
+// Estados en que un turno CONSUME su sesión de cuponera. 'completado' es un estado histórico
+// que la agenda ya no ofrece, pero hay turnos viejos con él: la agenda no lo contaba al editar
+// (pasar uno de 'completado' a 'confirmado' sumaba la sesión otra vez) y sí al borrar y en la
+// ficha. Ahora todas las pantallas usan la misma lista (la de gift cards ya era esta).
+export const CONSUMED_STATUSES = ['confirmado', 'cancelado_tarde', 'completado']
+
+export function isConsumedStatus(status?: string | null): boolean {
+    return !!status && CONSUMED_STATUSES.includes(status)
+}
+
 // Ventana de turnos que carga la agenda para una fecha: el mes de esa fecha ± 7 días, así
 // cubre las semanas que cruzan de mes. Se usa como solapamiento: start_time < end y
 // end_time > start.

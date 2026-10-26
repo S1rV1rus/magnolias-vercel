@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { fetchAllRows } from '../lib/fetchAll'
 import { Plus, Search, FileText, Pencil, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
 
 export function Patients() {
@@ -36,18 +37,30 @@ export function Patients() {
     }, [])
 
     async function fetchPatients() {
-        const { data } = await supabase.from('patients').select('*').order('created_at', { ascending: false })
-        if (data) {
-            // Check debt for patients
-            const { data: debtData } = await supabase.from('appointments').select('patient_id').eq('is_unpaid', true)
-            const debtors = new Set(debtData?.map(d => d.patient_id))
-            
-            const mapped = data.map(p => ({
-                ...p,
-                has_debt: debtors.has(p.id)
-            }))
-            setPatients(mapped)
+        // Paginado: con más de 1000 pacientes, una sola consulta cortaba la lista sin avisar
+        const [{ data, error }, { data: debtData }] = await Promise.all([
+            fetchAllRows(
+                (from, to) => supabase.from('patients').select('*')
+                    .order('created_at', { ascending: false }).order('id').range(from, to)
+            ),
+            // Deuda por la tabla de unión: así también se marca al 2º paciente de un turno
+            // compartido (appointments.patient_id solo guarda al primero)
+            fetchAllRows<{ patient_id: string | null; appointment_patients: { patient_id: string }[] | null }>(
+                (from, to) => supabase.from('appointments').select('patient_id, appointment_patients(patient_id)')
+                    .eq('is_unpaid', true).order('id').range(from, to)
+            ),
+        ])
+        if (error) {
+            console.error('Error loading patients:', error)
+            alert('No se pudo cargar la lista de pacientes. Recargá la página.')
+            return
         }
+        const debtors = new Set<string>()
+        debtData.forEach(d => {
+            if (d.patient_id) debtors.add(d.patient_id)
+            d.appointment_patients?.forEach(ap => debtors.add(ap.patient_id))
+        })
+        setPatients(data.map(p => ({ ...p, has_debt: debtors.has(p.id) })))
     }
 
     const openCreate = () => {
@@ -61,7 +74,7 @@ export function Patients() {
         setFormData({
             first_name: patient.first_name,
             last_name: patient.last_name,
-            document_id: patient.document_id,
+            document_id: patient.document_id || '',
             phone: patient.phone || '',
             email: patient.email || ''
         })
@@ -83,7 +96,7 @@ export function Patients() {
                 phone: formData.phone || null,
                 email: formData.email || null
             }).eq('id', editingPatient.id)
-            if (error) { console.error('Error updating patient:', error); return }
+            if (error) { console.error('Error updating patient:', error); alert('No se pudo guardar el paciente. Intentá de nuevo.'); return }
         } else {
             // Crear
             const { error } = await supabase.from('patients').insert([{
@@ -93,7 +106,7 @@ export function Patients() {
                 phone: formData.phone || null,
                 email: formData.email || null
             }])
-            if (error) { console.error('Error creating patient:', error); return }
+            if (error) { console.error('Error creating patient:', error); alert('No se pudo crear el paciente. Intentá de nuevo.'); return }
         }
 
         setIsModalOpen(false)
@@ -105,8 +118,10 @@ export function Patients() {
     const handleDeletePatient = async (patient: any) => {
         if (!window.confirm(`¿Seguro que deseas eliminar a ${patient.first_name} ${patient.last_name}? Esta acción eliminará también sus turnos, cuponeras e historia clínica.`)) return
         const { error } = await supabase.from('patients').delete().eq('id', patient.id)
-        if (error) console.error('Error deleting patient:', error)
-        else fetchPatients()
+        if (error) {
+            console.error('Error deleting patient:', error)
+            alert('No se pudo eliminar el paciente. Intentá de nuevo.')
+        } else fetchPatients()
     }
 
     // Filter patients

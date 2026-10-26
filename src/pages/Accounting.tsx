@@ -12,6 +12,7 @@ import {
     ChevronDown,
     ChevronUp,
     Download,
+    Gift,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -51,10 +52,37 @@ interface IndividualService {
     appointment_professionals: { professionals: ProfessionalRef | ProfessionalRef[] | null }[]
     services: { id: string; name: string; price: number | null } | null
     professionals: ProfessionalRef | null
+    is_gift: boolean | null
+    gift_card_id: string | null
+}
+
+interface GiftCardSale {
+    id: string
+    created_at: string
+    code: string
+    amount: number | null
+    currency: string | null
+    status: string
+    recipient_name: string | null
+    patients: { first_name: string; last_name: string } | null
+}
+
+// Monto que aporta un turno individual. Un turno sin cargo (is_gift: regalo, cortesía o
+// pagado con gift card) no es ingreso: la plata de la gift card entra cuando se VENDE (se
+// cuenta en su propia pestaña), igual que una cuponera. Antes se sumaba a precio de lista.
+function serviceAmount(s: IndividualService): number {
+    if (s.is_gift) return 0
+    return Number(s.payment_amount ?? s.services?.price ?? 0)
+}
+
+// El monto mostrado es el precio de lista (no se registró lo cobrado). payment_amount = 0 es
+// un monto real, no "sin dato".
+function isListPrice(s: IndividualService): boolean {
+    return !s.is_gift && s.payment_amount == null && !!s.services?.price
 }
 
 type QuickRange = 'this-month' | 'last-month' | 'last-30' | 'last-90' | 'this-year' | 'custom'
-type ActiveTab = 'cuponeras' | 'servicios'
+type ActiveTab = 'cuponeras' | 'servicios' | 'giftcards'
 type SortField = 'date' | 'amount' | 'patient' | 'service'
 type SortDir = 'asc' | 'desc'
 
@@ -64,6 +92,7 @@ export function Accounting() {
     const [loading, setLoading] = useState(true)
     const [cuponeras, setCuponeras] = useState<Cuponera[]>([])
     const [individualServices, setIndividualServices] = useState<IndividualService[]>([])
+    const [giftCardSales, setGiftCardSales] = useState<GiftCardSale[]>([])
 
     // Filters
     const [quickRange, setQuickRange] = useState<QuickRange>('this-month')
@@ -146,7 +175,7 @@ export function Accounting() {
             const { data: srvData } = await supabase
                 .from('appointments')
                 .select(`
-                    id, start_time, status, payment_amount, receipt_number, is_unpaid, cuponera_id,
+                    id, start_time, status, payment_amount, receipt_number, is_unpaid, cuponera_id, is_gift, gift_card_id,
                     appointment_patients(patients(id, first_name, last_name)),
                     appointment_professionals(professionals(id, first_name, last_name)),
                     services(id, name, price),
@@ -165,6 +194,23 @@ export function Accounting() {
                     professionals: Array.isArray(s.professionals) ? s.professionals[0] : s.professionals,
                 }))
                 setIndividualServices(normalized)
+            }
+
+            // 3. Gift cards vendidas en el período (el ingreso entra al venderla, no al canjearla)
+            const { data: gcData, error: gcError } = await supabase
+                .from('gift_cards')
+                .select('id, created_at, code, amount, currency, status, recipient_name, patients(first_name, last_name)')
+                .gte('created_at', startIso)
+                .lt('created_at', endIso)
+                .order('created_at', { ascending: false })
+
+            if (gcError) console.error('Error fetching gift cards:', gcError)
+            if (gcData) {
+                type GiftCardRow = Omit<GiftCardSale, 'patients'> & { patients: GiftCardSale['patients'] | GiftCardSale['patients'][] }
+                setGiftCardSales((gcData as unknown as GiftCardRow[]).map(g => ({
+                    ...g,
+                    patients: Array.isArray(g.patients) ? (g.patients[0] ?? null) : g.patients,
+                })))
             }
         } catch (err) {
             console.error('Error fetching accounting data:', err)
@@ -210,15 +256,20 @@ export function Accounting() {
     }
 
     // ── Computed KPIs ──────────────────────────────────────────────────────────
-    // Totales de cuponeras separados por moneda (los servicios individuales se asumen en pesos).
+    // Totales de cuponeras y gift cards separados por moneda (los servicios individuales se
+    // asumen en pesos: ni services.price ni payment_amount tienen moneda).
     const cuponerasTotal = cuponeras.reduce((sum, c) => sum + (c.currency !== 'USD' ? (c.amount_paid ?? 0) : 0), 0)
     const cuponerasTotalUSD = cuponeras.reduce((sum, c) => sum + (c.currency === 'USD' ? (c.amount_paid ?? 0) : 0), 0)
-    const serviciosTotal = individualServices.reduce((sum, s) => {
-        return sum + (s.payment_amount ?? s.services?.price ?? 0)
-    }, 0)
-    const ingresoTotal = cuponerasTotal + serviciosTotal
-    const ingresoTotalUSD = cuponerasTotalUSD
-    const totalTransacciones = cuponeras.length + individualServices.length
+    const serviciosTotal = individualServices.reduce((sum, s) => sum + serviceAmount(s), 0)
+    const giftCardsTotal = giftCardSales.reduce((sum, g) => sum + (g.currency !== 'USD' ? Number(g.amount ?? 0) : 0), 0)
+    const giftCardsTotalUSD = giftCardSales.reduce((sum, g) => sum + (g.currency === 'USD' ? Number(g.amount ?? 0) : 0), 0)
+    const ingresoTotal = cuponerasTotal + serviciosTotal + giftCardsTotal
+    const ingresoTotalUSD = cuponerasTotalUSD + giftCardsTotalUSD
+    // Ticket promedio en pesos: solo cuenta transacciones en pesos (antes dividía el total en
+    // pesos también por las cuponeras en dólares) y no cuenta los turnos sin cargo.
+    const totalTransacciones = cuponeras.filter(c => c.currency !== 'USD').length
+        + individualServices.filter(s => !s.is_gift).length
+        + giftCardSales.filter(g => g.currency !== 'USD').length
     const ticketPromedio = totalTransacciones > 0 ? ingresoTotal / totalTransacciones : 0
 
     const pendientesCuponeras = cuponeras.filter(c => c.is_paid === false).length
@@ -227,7 +278,7 @@ export function Accounting() {
 
     const montoPendienteCuponeras = cuponeras.filter(c => c.is_paid === false && c.currency !== 'USD').reduce((s, c) => s + (c.amount_paid ?? 0), 0)
     const montoPendienteCuponerasUSD = cuponeras.filter(c => c.is_paid === false && c.currency === 'USD').reduce((s, c) => s + (c.amount_paid ?? 0), 0)
-    const montoPendienteServicios = individualServices.filter(s => s.is_unpaid === true).reduce((s, srv) => s + (srv.payment_amount ?? srv.services?.price ?? 0), 0)
+    const montoPendienteServicios = individualServices.filter(s => s.is_unpaid === true).reduce((s, srv) => s + serviceAmount(srv), 0)
     const montoPendienteTotal = montoPendienteCuponeras + montoPendienteServicios
 
     // ── Search Filter ──────────────────────────────────────────────────────────
@@ -280,7 +331,7 @@ export function Accounting() {
         const dir = sortDir === 'asc' ? 1 : -1
         switch (sortField) {
             case 'date': return dir * (new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
-            case 'amount': return dir * ((a.payment_amount ?? 0) - (b.payment_amount ?? 0))
+            case 'amount': return dir * (serviceAmount(a) - serviceAmount(b))
             case 'patient': return dir * (getPatientName(a).localeCompare(getPatientName(b)))
             case 'service': return dir * ((a.services?.name ?? '').localeCompare(b.services?.name ?? ''))
             default: return 0
@@ -292,8 +343,26 @@ export function Accounting() {
     const cuponerasSummaryTotalUSD = filteredCuponeras.reduce((s, c) => s + (c.currency === 'USD' ? (c.amount_paid ?? 0) : 0), 0)
     const cuponerasAvg = filteredCuponeras.length > 0 ? cuponerasSummaryTotal / filteredCuponeras.length : 0
 
-    const serviciosSummaryTotal = filteredServicios.reduce((s, srv) => s + (srv.payment_amount ?? srv.services?.price ?? 0), 0)
-    const serviciosAvg = filteredServicios.length > 0 ? serviciosSummaryTotal / filteredServicios.length : 0
+    const serviciosSummaryTotal = filteredServicios.reduce((s, srv) => s + serviceAmount(srv), 0)
+    const serviciosCobrables = filteredServicios.filter(s => !s.is_gift).length
+    const serviciosAvg = serviciosCobrables > 0 ? serviciosSummaryTotal / serviciosCobrables : 0
+
+    const filteredGiftCards = giftCardSales.filter(g => {
+        if (!searchQuery.trim()) return true
+        const terms = normalize(searchQuery).split(' ').filter(Boolean)
+        const haystack = normalize(`${g.code} ${g.patients?.first_name ?? ''} ${g.patients?.last_name ?? ''} ${g.recipient_name ?? ''}`)
+        return terms.every(t => haystack.includes(t))
+    })
+    const sortedGiftCards = [...filteredGiftCards].sort((a, b) => {
+        const dir = sortDir === 'asc' ? 1 : -1
+        switch (sortField) {
+            case 'amount': return dir * (Number(a.amount ?? 0) - Number(b.amount ?? 0))
+            case 'patient': return dir * ((a.patients?.last_name ?? '').localeCompare(b.patients?.last_name ?? ''))
+            default: return dir * (new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+        }
+    })
+    const giftCardsSummaryTotal = filteredGiftCards.reduce((s, g) => s + (g.currency !== 'USD' ? Number(g.amount ?? 0) : 0), 0)
+    const giftCardsSummaryTotalUSD = filteredGiftCards.reduce((s, g) => s + (g.currency === 'USD' ? Number(g.amount ?? 0) : 0), 0)
 
     // ── Excel Export (HTML Table → XLS) ──────────────────────────────────────────
     const MONTHS_ES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
@@ -356,8 +425,13 @@ export function Accounting() {
     }
 
     function fmtMoney(val: number | null | undefined): string {
-        if (val == null || val === 0) return ''
-        return `$${Number(val).toLocaleString('es-AR')}`
+        if (val == null) return ''
+        return `$${Number(val).toLocaleString('es-UY')}`
+    }
+
+    // Total en pesos más el agregado en dólares, si hay (el reporte antes omitía los USD)
+    function fmtMoneyWithUSD(pesos: number, usd: number): string {
+        return `${fmtMoney(pesos)}${usd > 0 ? ` + US$ ${usd.toLocaleString('es-UY')}` : ''}`
     }
 
 
@@ -377,7 +451,7 @@ export function Accounting() {
             <tr><td colspan="8" class="section-title">📊 Resumen General</td></tr>
             <tr>
                 <td class="kpi-label">Ingreso Total</td>
-                <td class="kpi-accent">${fmtMoney(ingresoTotal)}</td>
+                <td class="kpi-accent">${fmtMoneyWithUSD(ingresoTotal, ingresoTotalUSD)}</td>
                 <td></td>
                 <td class="kpi-label">Cuponeras Vendidas</td>
                 <td class="kpi-value">${cuponeras.length}</td>
@@ -395,8 +469,12 @@ export function Accounting() {
             </tr>
             <tr>
                 <td class="kpi-label">Ticket Promedio</td>
-                <td class="kpi-value">${fmtMoney(ticketPromedio)}</td>
-                <td colspan="6"></td>
+                <td class="kpi-value">${fmtMoney(Math.round(ticketPromedio))}</td>
+                <td></td>
+                <td class="kpi-label">Gift Cards Vendidas</td>
+                <td class="kpi-value">${giftCardSales.length}</td>
+                <td class="kpi-accent">${fmtMoneyWithUSD(giftCardsTotal, giftCardsTotalUSD)}</td>
+                <td></td><td></td>
             </tr>
             <tr><td colspan="8"></td></tr>
             <tr><td colspan="8"></td></tr>
@@ -455,9 +533,11 @@ export function Accounting() {
 
         sortedServicios.forEach((s, i) => {
             const cls = i % 2 === 0 ? 'td-data' : 'td-data-alt'
-            const effectiveAmount = s.payment_amount ?? s.services?.price ?? 0
-            const isEstimated = !s.payment_amount && s.services?.price
-            const badge = s.is_unpaid ? '<span class="badge-red">Impago</span>' : '<span class="badge-green">Cobrado</span>'
+            const effectiveAmount = serviceAmount(s)
+            const isEstimated = isListPrice(s)
+            const badge = s.is_gift
+                ? '<span class="badge-green">Sin cargo</span>'
+                : s.is_unpaid ? '<span class="badge-red">Impago</span>' : '<span class="badge-green">Cobrado</span>'
             const profNames = getProfessionalName(s)
             html += `<tr>
                 <td class="${cls}">${format(new Date(s.start_time), 'dd/MM/yyyy')}</td>
@@ -465,7 +545,7 @@ export function Accounting() {
                 <td class="${cls}">${esc(s.services?.name)}</td>
                 <td class="${cls}">${profNames !== '—' ? esc(profNames) : '<span class="text-muted">—</span>'}</td>
                 <td class="${cls} td-amount">${effectiveAmount > 0 ? fmtMoney(effectiveAmount) : '<span class="text-muted">—</span>'}${isEstimated ? ' <span class="text-muted">(lista)</span>' : ''}</td>
-                <td class="${cls}">${isEstimated ? 'Lista' : 'Cobrado'}</td>
+                <td class="${cls}">${s.is_gift ? (s.gift_card_id ? 'Gift Card' : 'Sin cargo') : isEstimated ? 'Lista' : 'Cobrado'}</td>
                 <td class="${cls}">${esc(s.receipt_number) || '<span class="text-muted">—</span>'}</td>
                 <td class="${cls} td-center">${badge}</td>
             </tr>`
@@ -482,10 +562,44 @@ export function Accounting() {
             <tr><td colspan="8"></td></tr>
             <tr><td colspan="8"></td></tr>
 
+            <!-- Gift Cards -->
+            <tr><td colspan="8" class="section-title">🎁 Detalle de Gift Cards Vendidas (${sortedGiftCards.length})</td></tr>
+            <tr>
+                <th class="th-header">Fecha</th>
+                <th class="th-header">Código</th>
+                <th class="th-header">Comprador</th>
+                <th class="th-header">Recibe</th>
+                <th class="th-header">Monto</th>
+                <th class="th-header" colspan="2"></th>
+                <th class="th-header">Estado</th>
+            </tr>`
+
+        sortedGiftCards.forEach((g, i) => {
+            const cls = i % 2 === 0 ? 'td-data' : 'td-data-alt'
+            html += `<tr>
+                <td class="${cls}">${format(new Date(g.created_at), 'dd/MM/yyyy')}</td>
+                <td class="${cls}">${esc(g.code)}</td>
+                <td class="${cls}">${g.patients ? `${esc(g.patients.last_name)}, ${esc(g.patients.first_name)}` : '<span class="text-muted">—</span>'}</td>
+                <td class="${cls}">${esc(g.recipient_name) || '<span class="text-muted">—</span>'}</td>
+                <td class="${cls} td-amount">${g.amount ? `${currencySymbol(g.currency)} ${Number(g.amount).toLocaleString('es-UY')}` : '<span class="text-muted">—</span>'}</td>
+                <td class="${cls}" colspan="2"></td>
+                <td class="${cls} td-center">${g.status === 'usada' ? 'Canjeada' : 'Vigente'}</td>
+            </tr>`
+        })
+
+        html += `
+            <tr class="summary-row">
+                <td colspan="4">Subtotal Gift Cards: ${sortedGiftCards.length}</td>
+                <td class="td-amount">${fmtMoneyWithUSD(giftCardsSummaryTotal, giftCardsSummaryTotalUSD)}</td>
+                <td colspan="3"></td>
+            </tr>
+            <tr><td colspan="8"></td></tr>
+            <tr><td colspan="8"></td></tr>
+
             <!-- Grand Total -->
             <tr style="background: #1a1a2e;">
                 <td colspan="4" style="color: #fff; font-weight: bold; font-size: 13px; padding: 10px;">TOTAL GENERAL</td>
-                <td style="color: #10b981; font-weight: bold; font-size: 15px; text-align: right; padding: 10px;">${fmtMoney(ingresoTotal)}</td>
+                <td style="color: #10b981; font-weight: bold; font-size: 15px; text-align: right; padding: 10px;">${fmtMoneyWithUSD(ingresoTotal, ingresoTotalUSD)}</td>
                 <td colspan="3" style="color: #fbbf24; font-size: 11px; padding: 10px;">${totalPendientes > 0 ? `⚠️ ${totalPendientes} pendientes (${fmtMoney(montoPendienteTotal)})` : '✅ Sin pendientes'}</td>
             </tr>
         </table>`
@@ -510,7 +624,7 @@ export function Accounting() {
                 <div className="flex items-center gap-2">
                     <button
                         onClick={exportReporteCompletoCSV}
-                        disabled={loading || (cuponeras.length === 0 && individualServices.length === 0)}
+                        disabled={loading || (cuponeras.length === 0 && individualServices.length === 0 && giftCardSales.length === 0)}
                         className="inline-flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-lg shadow-sm hover:bg-primary/90 transition-all cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                         title="Descargar reporte completo para el contador"
                     >
@@ -584,7 +698,7 @@ export function Accounting() {
                         {ingresoTotalUSD > 0 && (
                             <p className="text-sm font-semibold text-foreground/70 mt-0.5">+ US$ {ingresoTotalUSD.toLocaleString('es-UY')}</p>
                         )}
-                        <p className="text-[10px] text-muted-foreground mt-0.5">Cuponeras + Servicios (pesos)</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Cuponeras + Servicios + Gift Cards</p>
                     </div>
                 </div>
 
@@ -668,7 +782,7 @@ export function Accounting() {
                             ${ticketPromedio.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                         </h3>
                         <p className="text-[10px] text-muted-foreground mt-0.5">
-                            Sobre {totalTransacciones} transacción{totalTransacciones !== 1 ? 'es' : ''}
+                            Sobre {totalTransacciones} {totalTransacciones !== 1 ? 'transacciones' : 'transacción'} en pesos
                         </p>
                     </div>
                 </div>
@@ -717,13 +831,33 @@ export function Accounting() {
                             {individualServices.length}
                         </span>
                     </button>
+                    <button
+                        onClick={() => { setActiveTab('giftcards'); setSearchQuery(''); setSortField('date'); setSortDir('desc') }}
+                        className={cn(
+                            "px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-2",
+                            activeTab === 'giftcards'
+                                ? "bg-card text-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground"
+                        )}
+                    >
+                        <Gift className="w-3.5 h-3.5" />
+                        Gift Cards
+                        <span className={cn(
+                            "text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none",
+                            activeTab === 'giftcards'
+                                ? "bg-primary/10 text-primary"
+                                : "bg-muted text-muted-foreground"
+                        )}>
+                            {giftCardSales.length}
+                        </span>
+                    </button>
                 </div>
 
                 <div className="relative w-full sm:w-72">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input
                         type="text"
-                        placeholder={activeTab === 'cuponeras' ? "Buscar paciente, tratamiento..." : "Buscar paciente, servicio, profesional..."}
+                        placeholder={activeTab === 'cuponeras' ? "Buscar paciente, tratamiento..." : activeTab === 'giftcards' ? "Buscar código, comprador, quién recibe..." : "Buscar paciente, servicio, profesional..."}
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
                         className="w-full pl-9 pr-3 py-1.5 bg-background border border-input rounded-lg text-xs text-foreground focus:ring-1 focus:ring-primary outline-none"
@@ -871,7 +1005,7 @@ export function Accounting() {
                         </div>
                     )}
                 </div>
-            ) : (
+            ) : activeTab === 'servicios' ? (
                 /* ═══ TAB: SERVICIOS INDIVIDUALES ═══ */
                 <div className="bg-card rounded-xl shadow-sm border border-border overflow-hidden">
                     <div className="overflow-x-auto">
@@ -905,8 +1039,8 @@ export function Accounting() {
                             </thead>
                             <tbody className="divide-y divide-border">
                                 {sortedServicios.map(s => {
-                                    const effectiveAmount = s.payment_amount ?? s.services?.price ?? 0
-                                    const isEstimated = !s.payment_amount && s.services?.price
+                                    const effectiveAmount = serviceAmount(s)
+                                    const isEstimated = isListPrice(s)
 
                                     return (
                                         <tr key={s.id} className="hover:bg-muted/30 transition-colors">
@@ -927,7 +1061,11 @@ export function Accounting() {
                                                 {getProfessionalName(s)}
                                             </td>
                                             <td className="px-5 py-3.5">
-                                                {effectiveAmount > 0 ? (
+                                                {s.is_gift ? (
+                                                    <span className="text-xs text-muted-foreground italic">
+                                                        Sin cargo{s.gift_card_id ? ' (Gift Card)' : ''}
+                                                    </span>
+                                                ) : effectiveAmount > 0 ? (
                                                     <div className="flex flex-col">
                                                         <span className="font-bold text-foreground">
                                                             ${Number(effectiveAmount).toLocaleString('es-AR')}
@@ -952,7 +1090,11 @@ export function Accounting() {
                                                 )}
                                             </td>
                                             <td className="px-5 py-3.5 text-center">
-                                                {s.is_unpaid ? (
+                                                {s.is_gift ? (
+                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20">
+                                                        Sin cargo
+                                                    </span>
+                                                ) : s.is_unpaid ? (
                                                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">
                                                         Impago
                                                     </span>
@@ -1007,6 +1149,102 @@ export function Accounting() {
                                     {pendientesServicios}
                                 </span>
                             </div>
+                        </div>
+                    )}
+                </div>
+            ) : (
+                /* ═══ TAB: GIFT CARDS VENDIDAS ═══ */
+                <div className="bg-card rounded-xl shadow-sm border border-border overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="text-xs text-muted-foreground uppercase bg-muted/50">
+                                <tr>
+                                    <th className="px-5 py-3 font-medium">
+                                        <button onClick={() => handleSort('date')} className="flex items-center gap-1 cursor-pointer hover:text-foreground transition-colors">
+                                            Fecha <SortIcon field="date" />
+                                        </button>
+                                    </th>
+                                    <th className="px-5 py-3 font-medium">Código</th>
+                                    <th className="px-5 py-3 font-medium">
+                                        <button onClick={() => handleSort('patient')} className="flex items-center gap-1 cursor-pointer hover:text-foreground transition-colors">
+                                            Comprador <SortIcon field="patient" />
+                                        </button>
+                                    </th>
+                                    <th className="px-5 py-3 font-medium">Recibe</th>
+                                    <th className="px-5 py-3 font-medium">
+                                        <button onClick={() => handleSort('amount')} className="flex items-center gap-1 cursor-pointer hover:text-foreground transition-colors">
+                                            Monto <SortIcon field="amount" />
+                                        </button>
+                                    </th>
+                                    <th className="px-5 py-3 font-medium text-center">Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border">
+                                {sortedGiftCards.map(g => (
+                                    <tr key={g.id} className="hover:bg-muted/30 transition-colors">
+                                        <td className="px-5 py-3.5 text-muted-foreground whitespace-nowrap">
+                                            {format(new Date(g.created_at), "dd MMM yyyy", { locale: es })}
+                                        </td>
+                                        <td className="px-5 py-3.5 font-mono text-xs text-foreground">{g.code}</td>
+                                        <td className="px-5 py-3.5">
+                                            <span className="font-medium text-foreground">
+                                                {g.patients ? `${g.patients.last_name}, ${g.patients.first_name}` : '—'}
+                                            </span>
+                                        </td>
+                                        <td className="px-5 py-3.5 text-muted-foreground">{g.recipient_name || '—'}</td>
+                                        <td className="px-5 py-3.5">
+                                            {g.amount ? (
+                                                <span className="font-bold text-foreground">{formatMoney(g.amount, g.currency)}</span>
+                                            ) : (
+                                                <span className="text-xs text-muted-foreground italic">Sin monto</span>
+                                            )}
+                                        </td>
+                                        <td className="px-5 py-3.5 text-center">
+                                            <span className={cn(
+                                                "inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border",
+                                                g.status === 'usada'
+                                                    ? "bg-muted text-muted-foreground border-border"
+                                                    : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                                            )}>
+                                                {g.status === 'usada' ? 'Canjeada' : 'Vigente'}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))}
+
+                                {sortedGiftCards.length === 0 && (
+                                    <tr>
+                                        <td colSpan={6} className="px-5 py-12 text-center text-muted-foreground">
+                                            <Gift className="mx-auto h-10 w-10 opacity-20 mb-3" />
+                                            <p className="text-sm">No se vendieron gift cards en este período.</p>
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Summary Footer */}
+                    {filteredGiftCards.length > 0 && (
+                        <div className="border-t border-border bg-muted/20 px-5 py-4 flex flex-wrap gap-6 items-center">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">Total vendidas:</span>
+                                <span className="text-sm font-bold text-foreground">{filteredGiftCards.length}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">Total facturado:</span>
+                                <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                                    ${giftCardsSummaryTotal.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                                </span>
+                            </div>
+                            {giftCardsSummaryTotalUSD > 0 && (
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-muted-foreground">En dólares:</span>
+                                    <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                                        US$ {giftCardsSummaryTotalUSD.toLocaleString('es-UY')}
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

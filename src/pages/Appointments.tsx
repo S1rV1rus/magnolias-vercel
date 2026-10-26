@@ -8,9 +8,10 @@ import { Plus, X, UserPlus, Trash2, CheckCircle2, Gift } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { writeLog } from '../lib/logger'
-import { monthsProgress, formatMoney } from '../lib/utils'
+import { monthsProgress, formatMoney, isCuponeraActive } from '../lib/utils'
 import { shiftCuponeraSessionIndexes } from '../lib/cuponeras'
-import { agendaFetchRange, notesSuggestNoCharge, projectCuponeraSessions, type CuponeraApptRow } from '../lib/appointments'
+import { fetchAllRows } from '../lib/fetchAll'
+import { agendaFetchRange, isConsumedStatus, notesSuggestNoCharge, projectCuponeraSessions, type CuponeraApptRow } from '../lib/appointments'
 import { findGiftCardByCode, redeemGiftCard, releaseGiftCard, GIFT_CARD_CONSUMED_STATUSES, type GiftCardRow } from '../lib/giftCards'
 
 const roundToNearest30 = (date: Date): Date => {
@@ -50,12 +51,14 @@ const STATUS_COLOR: Record<string, string> = {
     pendiente: '#d97706',
     cancelado: '#ef4444',
     cancelado_tarde: '#ef4444',
+    completado: '#2563eb', // estado histórico: ya no se ofrece, pero hay turnos viejos con él
 }
 const STATUS_LABEL: Record<string, string> = {
     confirmado: 'Confirmado',
     pendiente: 'Pendiente',
     cancelado: 'Cancelado',
     cancelado_tarde: 'Cancelado c/penalidad',
+    completado: 'Completado',
 }
 
 // ─── Profesionales del turno ───────────────────────────────────────────────────
@@ -691,17 +694,19 @@ export function Appointments() {
                 return
             }
 
-            // Si es un turno nuevo o uno sin cuponera vinculada, buscar si hay una activa
+            // Si es un turno nuevo o uno sin cuponera vinculada, buscar si hay una activa.
+            // Se descartan los pases mensuales vencidos por fecha (su is_active queda en true).
             const { data } = await supabase
                 .from('cuponeras')
-                .select('id, total_sessions, used_sessions, is_paid, cuponera_type, total_months, start_date')
+                .select('id, total_sessions, used_sessions, is_paid, cuponera_type, total_months, start_date, is_active')
                 .eq('patient_id', pid)
                 .eq('service_id', sid)
                 .eq('is_active', true)
                 .order('created_at', { ascending: false })
-                .limit(1)
+                .limit(10)
 
-            setActiveCuponera(data?.[0] ? { ...data[0], is_linked: false } : null)
+            const active = data?.find(isCuponeraActive)
+            setActiveCuponera(active ? { ...active, is_linked: false } : null)
         }
 
         fetchCuponera()
@@ -825,7 +830,10 @@ export function Appointments() {
         }
 
         const [{ data: pData }, { data: sData }, { data: profData }, { data: rData }] = await Promise.all([
-            supabase.from('patients').select('id, first_name, last_name, document_id').order('last_name'),
+            fetchAllRows(
+                (from, to) => supabase.from('patients').select('id, first_name, last_name, document_id')
+                    .order('last_name').order('id').range(from, to)
+            ),
             supabase.from('services').select('id, name, duration_minutes'),
             supabase.from('professionals').select('id, first_name, last_name').eq('is_active', true),
             supabase.from('rooms').select('id, name').eq('is_active', true).order('name'),
@@ -1156,8 +1164,8 @@ export function Appointments() {
                 }
 
                 // Cuponera Update Logic
-                const wasConsumed = ['confirmado', 'cancelado_tarde'].includes(prevStatus)
-                const isNowConsumed = ['confirmado', 'cancelado_tarde'].includes(newStatus)
+                const wasConsumed = isConsumedStatus(prevStatus)
+                const isNowConsumed = isConsumedStatus(newStatus)
 
                 if (prevStatus !== newStatus && selectedEvent.raw.cuponera && selectedEvent.raw.cuponera.cuponera_type !== 'months' && wasConsumed !== isNowConsumed) {
                     const cuponera = selectedEvent.raw.cuponera
@@ -1338,7 +1346,7 @@ export function Appointments() {
 
 
             // Increment cuponera sessions if created as consumed (solo cuponeras por sesiones; los pases mensuales no descuentan)
-            if (activeCuponera && activeCuponera.cuponera_type !== 'months' && ['confirmado', 'cancelado_tarde'].includes(formData.status)) {
+            if (activeCuponera && activeCuponera.cuponera_type !== 'months' && isConsumedStatus(formData.status)) {
                 const newUsed = activeCuponera.used_sessions + 1
                 const isNowActive = newUsed < activeCuponera.total_sessions
 
@@ -1387,7 +1395,7 @@ export function Appointments() {
 
         if (!error) {
             // Restore cuponera session if deleted while consumed (solo por sesiones)
-            if (raw.cuponera && raw.cuponera.cuponera_type !== 'months' && ['confirmado', 'cancelado_tarde', 'completado'].includes(selectedEvent.status)) {
+            if (raw.cuponera && raw.cuponera.cuponera_type !== 'months' && isConsumedStatus(selectedEvent.status)) {
                 const newUsed = raw.cuponera.used_sessions - 1
                 await supabase.from('cuponeras').update({
                     used_sessions: newUsed,
@@ -1682,6 +1690,10 @@ export function Appointments() {
                                             <option value="confirmado">Confirmado</option>
                                             <option value="cancelado">Cancelado</option>
                                             <option value="cancelado_tarde">Cancelado con penalidad</option>
+                                            {/* Sin esta opción, un turno viejo 'completado' mostraba otro estado en el select */}
+                                            {selectedEvent?.status === 'completado' && (
+                                                <option value="completado">Completado (histórico)</option>
+                                            )}
                                         </select>
                                     </div>
                                     

@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { fetchAllRows } from '../lib/fetchAll'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Plus, Ticket, Search, CheckCircle2, X, Pencil, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { cn, formatMoney, monthsProgress, localDateStr } from '../lib/utils'
+import { cn, formatMoney, monthsProgress, localDateStr, isCuponeraActive } from '../lib/utils'
 import { CurrencyToggle, ZonesPicker } from '../components/CuponeraFields'
 
 const initialForm = {
@@ -161,11 +162,12 @@ export function Coupons() {
         }
 
         // 2. Fetch Patients for Dropdown
-        const { data: pData } = await supabase
-            .from('patients')
-            .select('id, first_name, last_name, document_id')
-            .order('last_name', { ascending: true })
-        if (pData) setPatients(pData)
+        const { data: pData, error: pError } = await fetchAllRows(
+            (from, to) => supabase.from('patients').select('id, first_name, last_name, document_id')
+                .order('last_name', { ascending: true }).order('id').range(from, to)
+        )
+        if (pError) console.error('Error fetching patients:', pError)
+        else setPatients(pData)
 
         // 3. Fetch Services for Dropdown
         const { data: sData } = await supabase
@@ -202,7 +204,8 @@ export function Coupons() {
             payload.used_months = formData.used_months
             payload.start_date = formData.start_date || null
             payload.total_sessions = 0
-            payload.is_active = formData.used_months < formData.total_months
+            // Vence por fecha, no por used_months (que nadie actualiza)
+            payload.is_active = monthsProgress(payload.start_date, formData.total_months).activa
         } else {
             payload.total_sessions = formData.total_sessions
             payload.used_sessions = formData.used_sessions
@@ -404,20 +407,20 @@ export function Coupons() {
                                                 </div>
                                                 <div className="w-full bg-background rounded-full h-2 border border-border overflow-hidden">
                                                     <div
-                                                        className={`h-full rounded-full transition-all duration-500 ${c.is_active ? 'bg-primary' : 'bg-muted-foreground'}`}
+                                                        className={`h-full rounded-full transition-all duration-500 ${isCuponeraActive(c) ? 'bg-primary' : 'bg-muted-foreground'}`}
                                                         style={{ width: `${pct}%` }}
                                                     />
                                                 </div>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 text-center">
-                                            {c.is_active ? (
+                                            {isCuponeraActive(c) ? (
                                                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20">
                                                     Activa
                                                 </span>
                                             ) : (
                                                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground border border-border">
-                                                    Consumida
+                                                    {isMonthly ? 'Vencida' : 'Consumida'}
                                                 </span>
                                             )}
                                         </td>
