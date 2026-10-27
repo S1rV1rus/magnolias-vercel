@@ -92,11 +92,13 @@ en producción, el bucket se puede hacer privado y una foto deja de abrirse por 
 
 ## Resultado del diagnóstico (2026-10-27)
 
-- ~450 turnos, ~530 pacientes, 13 usuarios (1 admin, 11 staff, **1 sin rol**: revisar quién es en
-  Authentication → Users).
+- ~450 turnos, ~530 pacientes, 13 usuarios (1 admin, 11 staff, 1 sin rol → ✅ era la cuenta del
+  nuevo desarrollador; se le dio rol admin el 2026-10-27).
 - Bucket `patient-photos` **público** con políticas abiertas → paso 4.
-- **1 par de turnos activos superpuestos** en la misma sala → resolver antes del script de
-  superposición.
+- **1 par de turnos activos superpuestos** en la misma sala → ✅ resuelto el 2026-10-27: era un
+  duplicado (doble guardado del 03/09 19:00, Consultorio 2, misma paciente y cuponera). Se borró el
+  de la sesión 5 y la cuponera quedó en 4 de 4. Pendiente que la clínica confirme si los dos canjes
+  manuales del 16/05 de esa misma cuponera fueron dos sesiones reales.
 - **0 deudas** con monto repetido → no hace falta script de corrección.
 
 ## Lo que viene después (en este orden)
