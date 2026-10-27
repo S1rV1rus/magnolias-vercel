@@ -5,6 +5,7 @@ import { ArrowLeft, Calendar, CalendarDays, FileText, CreditCard, Plus, Ticket, 
 import { cn, formatMoney, monthsProgress, localDateStr, isCuponeraActive } from '../../lib/utils'
 import { shiftCuponeraSessionIndexes } from '../../lib/cuponeras'
 import { debtPaymentAmounts, isConsumedStatus } from '../../lib/appointments'
+import { signPhotoUrls } from '../../lib/photos'
 import { CurrencyToggle, ZonesPicker } from '../../components/CuponeraFields'
 
 interface ProfessionalRef {
@@ -172,13 +173,14 @@ export function PatientDetails() {
             .order('photo_order', { ascending: true })
 
         if (photosData) {
+            const photoUrls = await signPhotoUrls(supabase, photosData.map(p => p.storage_path))
+                .catch(err => { console.error('Error al firmar las fotos:', err); return {} as Record<string, string> })
             const photoMap: Record<string, string[]> = {}
-            photosData.forEach((p: any) => {
-                const { data: urlData } = supabase.storage
-                    .from('patient-photos')
-                    .getPublicUrl(p.storage_path)
+            photosData.forEach(p => {
+                const url = photoUrls[p.storage_path]
+                if (!url) return
                 if (!photoMap[p.clinical_history_id]) photoMap[p.clinical_history_id] = []
-                photoMap[p.clinical_history_id].push(urlData.publicUrl)
+                photoMap[p.clinical_history_id].push(url)
             })
             setHistoryPhotos(photoMap)
         }
@@ -392,7 +394,9 @@ export function PatientDetails() {
             .eq('clinical_history_id', entryId)
             .order('photo_order', { ascending: true })
         if (data) {
-            setEditingHistoryPhotos(data)
+            const urls = await signPhotoUrls(supabase, data.map(p => p.storage_path))
+                .catch(err => { console.error('Error al firmar las fotos:', err); return {} as Record<string, string> })
+            setEditingHistoryPhotos(data.map(p => ({ ...p, signedUrl: urls[p.storage_path] })))
         }
     }
 
@@ -2156,11 +2160,10 @@ export function PatientDetails() {
                                                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">Fotos Subidas</label>
                                                 <div className="flex gap-2 flex-wrap">
                                                     {editingHistoryPhotos.map((photo, pidx) => {
-                                                        const { data: urlData } = supabase.storage.from('patient-photos').getPublicUrl(photo.storage_path);
                                                         return (
                                                             <div key={photo.id} className="relative group w-24 h-24">
                                                                 <img
-                                                                    src={urlData.publicUrl}
+                                                                    src={photo.signedUrl}
                                                                     alt={`Foto ${pidx + 1}`}
                                                                     className="w-24 h-24 object-cover rounded-lg border border-border"
                                                                 />
