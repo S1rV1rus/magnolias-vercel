@@ -1,383 +1,344 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { format } from 'date-fns'
+import { es } from 'date-fns/locale'
+import { AlertCircle, CalendarDays, CalendarClock, Clock, Package, Pin, RefreshCw, Ticket, Wallet } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { Calendar, Save, CheckCircle2, Clock, Copy, ChevronRight } from 'lucide-react'
+import { cn, localDateStr, localDayRangeIso } from '../lib/utils'
+import { STATUS_COLOR, STATUS_LABEL } from '../lib/appointments'
+import { lowStock, passesExpiringSoon, summarizeDay, toDayAppt, type DayAppt, type DayApptRow } from '../lib/dashboard'
 
-const DAYS_OF_WEEK = [
-    { key: 'monday', label: 'Lunes', short: 'Lun' },
-    { key: 'tuesday', label: 'Martes', short: 'Mar' },
-    { key: 'wednesday', label: 'Miércoles', short: 'Mié' },
-    { key: 'thursday', label: 'Jueves', short: 'Jue' },
-    { key: 'friday', label: 'Viernes', short: 'Vie' },
-    { key: 'saturday', label: 'Sábado', short: 'Sáb' },
-]
+// Pantalla de inicio: qué pasa hoy en la clínica. Cada tarjeta depende de un solo pedido, así que
+// si uno falla las demás se siguen viendo.
 
-const MONTHS = [
-    { value: 1, label: 'Enero' }, { value: 2, label: 'Febrero' }, { value: 3, label: 'Marzo' },
-    { value: 4, label: 'Abril' }, { value: 5, label: 'Mayo' }, { value: 6, label: 'Junio' },
-    { value: 7, label: 'Julio' }, { value: 8, label: 'Agosto' }, { value: 9, label: 'Septiembre' },
-    { value: 10, label: 'Octubre' }, { value: 11, label: 'Noviembre' }, { value: 12, label: 'Diciembre' },
-]
+interface PassRow {
+    id: string
+    patient_id: string
+    cuponera_type: string
+    start_date: string | null
+    total_months: number | null
+    is_active: boolean | null
+    patients: { first_name: string; last_name: string } | null
+    services: { name: string } | null
+}
+interface StockRow { id: string; name: string; quantity: number; min_quantity: number; unit: string; is_active: boolean }
+interface NoteRow { id: string; title: string; color: string }
 
-const MONTH_ABBR = ['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+interface Section<T> { data: T[]; error: boolean }
+const empty = <T,>(): Section<T> => ({ data: [], error: false })
 
-const makeEmptyWeek = () => ({
-    monday: { active: false, start: '09:00', end: '18:00' },
-    tuesday: { active: false, start: '09:00', end: '18:00' },
-    wednesday: { active: false, start: '09:00', end: '18:00' },
-    thursday: { active: false, start: '09:00', end: '18:00' },
-    friday: { active: false, start: '09:00', end: '18:00' },
-    saturday: { active: false, start: '09:00', end: '13:00' },
-})
-
-const makeDefaultSchedule = () => ({
-    week1: makeEmptyWeek(),
-    week2: makeEmptyWeek(),
-    week3: makeEmptyWeek(),
-    week4: makeEmptyWeek(),
-})
-
-/** Compute the 4-week date ranges for a given month/year */
-function getWeekRanges(month: number, year: number) {
-    const lastDay = new Date(year, month, 0).getDate()
-    const abbr = MONTH_ABBR[month]
-    return [
-        { key: 'week1', label: 'Semana 1', range: `01 – 07 ${abbr}` },
-        { key: 'week2', label: 'Semana 2', range: `08 – 14 ${abbr}` },
-        { key: 'week3', label: 'Semana 3', range: `15 – 21 ${abbr}` },
-        { key: 'week4', label: 'Semana 4', range: `22 – ${String(lastDay).padStart(2, '0')} ${abbr}` },
-    ]
+const NOTE_DOT: Record<string, string> = {
+    yellow: 'bg-yellow-400', red: 'bg-red-500', green: 'bg-green-500',
+    blue: 'bg-blue-500', purple: 'bg-violet-500', orange: 'bg-orange-500',
 }
 
-export interface Professional {
-    id: string;
-    first_name: string;
-    last_name: string;
+const hhmm = (iso: string) => format(new Date(iso), 'HH:mm')
+
+interface TodayData {
+    appts: Section<DayAppt>
+    passes: Section<PassRow & { vence: Date }>
+    stock: Section<StockRow>
+    notes: Section<NoteRow>
 }
 
-export type ScheduleData = Record<string, Record<string, { active: boolean; start: string; end: string }>>;
+// Los cuatro pedidos a la vez: la pantalla tarda lo que el más lento, no la suma.
+async function fetchToday(): Promise<TodayData> {
+    const hoy = localDateStr()
+    const { startIso, endIso } = localDayRangeIso(hoy, hoy)
+
+    const [a, p, s, n] = await Promise.all([
+        supabase.from('appointments')
+            .select(`id, start_time, end_time, status, is_unpaid, rooms(name), services(name),
+                     appointment_patients(patients(first_name, last_name))`)
+            .gte('start_time', startIso).lt('start_time', endIso)
+            .order('start_time'),
+        supabase.from('cuponeras')
+            .select('id, patient_id, cuponera_type, start_date, total_months, is_active, patients(first_name, last_name), services(name)')
+            .eq('cuponera_type', 'months').eq('is_active', true),
+        supabase.from('stock_items').select('id, name, quantity, min_quantity, unit, is_active'),
+        supabase.from('blog_notes').select('id, title, color').eq('is_pinned', true).order('created_at', { ascending: false }),
+    ])
+
+    if (a.error) console.error('Error al cargar los turnos de hoy:', a.error)
+    if (p.error) console.error('Error al cargar los pases:', p.error)
+    if (s.error) console.error('Error al cargar el stock:', s.error)
+    if (n.error) console.error('Error al cargar las notas:', n.error)
+
+    return {
+        appts: { data: ((a.data ?? []) as DayApptRow[]).map(toDayAppt), error: !!a.error },
+        passes: { data: passesExpiringSoon((p.data ?? []) as unknown as PassRow[], 7), error: !!p.error },
+        stock: { data: lowStock((s.data ?? []) as StockRow[]), error: !!s.error },
+        notes: { data: (n.data ?? []) as NoteRow[], error: !!n.error },
+    }
+}
 
 export function Home() {
-    const [professionals, setProfessionals] = useState<Professional[]>([])
-    const [selectedProfId, setSelectedProfId] = useState<string>('')
-    const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1)
-    const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
-    const [selectedWeek, setSelectedWeek] = useState<string>('week1')
-
-    const [schedule, setSchedule] = useState<ScheduleData>(makeDefaultSchedule())
-    const [isSaving, setIsSaving] = useState(false)
-    const [saveSuccess, setSaveSuccess] = useState(false)
-    const [copySuccess, setCopySuccess] = useState(false)
-
-    const weekRanges = getWeekRanges(selectedMonth, selectedYear)
-
-    const fetchProfessionals = async () => {
-        const { data, error } = await supabase
-            .from('professionals')
-            .select('id, first_name, last_name')
-            .eq('is_deleted', false)
-        if (data && !error) {
-            setProfessionals(data)
-            setSelectedProfId(prev => prev || (data.length > 0 ? data[0].id : prev))
-        }
-    }
-
-    const loadSchedule = async () => {
-        if (!selectedProfId) return
-        const { data, error } = await supabase
-            .from('professional_schedules')
-            .select('schedule')
-            .eq('professional_id', selectedProfId)
-            .eq('month', selectedMonth)
-            .eq('year', selectedYear)
-            .maybeSingle()
-
-        if (data && !error) {
-            setSchedule(data.schedule as ScheduleData)
-        } else {
-            setSchedule(makeDefaultSchedule())
-        }
-    }
-
-    useEffect(() => { void fetchProfessionals() }, []) // eslint-disable-line
+    const [loading, setLoading] = useState(true)
+    const [data, setData] = useState<TodayData>(() => ({ appts: empty(), passes: empty(), stock: empty(), notes: empty() }))
+    const [reloadKey, setReloadKey] = useState(0)
+    // "Ahora" se actualiza cada minuto para que el turno en curso y el próximo no queden viejos
+    const [now, setNow] = useState(() => new Date())
+    const { appts, passes, stock, notes } = data
 
     useEffect(() => {
-        if (selectedProfId) void loadSchedule() // eslint-disable-line
-        else setSchedule(makeDefaultSchedule())
-    }, [selectedProfId, selectedMonth, selectedYear]) // eslint-disable-line react-hooks/exhaustive-deps
+        let vigente = true // si se sale de la pantalla antes de que llegue la respuesta, se descarta
+        fetchToday().then(result => {
+            if (!vigente) return
+            setData(result)
+            setNow(new Date())
+            setLoading(false)
+        })
+        return () => { vigente = false }
+    }, [reloadKey])
 
-    const handleSaveSchedule = async () => {
-        setIsSaving(true)
-        setSaveSuccess(false)
-        const { error } = await supabase
-            .from('professional_schedules')
-            .upsert({
-                professional_id: selectedProfId,
-                month: selectedMonth,
-                year: selectedYear,
-                schedule,
-            }, { onConflict: 'professional_id, month, year' })
-
-        if (!error) {
-            setSaveSuccess(true)
-            setTimeout(() => setSaveSuccess(false), 3000)
-        } else {
-            console.error('Error saving schedule:', error)
-        }
-        setIsSaving(false)
+    const refresh = () => {
+        setLoading(true)
+        setReloadKey(k => k + 1)
     }
 
-    const handleDayToggle = (day: string) => {
-        setSchedule((prev) => ({
-            ...prev,
-            [selectedWeek]: {
-                ...prev[selectedWeek],
-                [day]: { ...prev[selectedWeek][day], active: !prev[selectedWeek][day].active },
-            },
-        }))
-    }
+    useEffect(() => {
+        const t = setInterval(() => setNow(new Date()), 60_000)
+        return () => clearInterval(t)
+    }, [])
 
-    const handleTimeChange = (day: string, field: 'start' | 'end', value: string) => {
-        setSchedule((prev) => ({
-            ...prev,
-            [selectedWeek]: {
-                ...prev[selectedWeek],
-                [day]: { ...prev[selectedWeek][day], [field]: value },
-            },
-        }))
-    }
-
-    const handleCopyToAllWeeks = () => {
-        const current = schedule[selectedWeek]
-        setSchedule((prev) => ({
-            ...prev,
-            week1: { ...current },
-            week2: { ...current },
-            week3: { ...current },
-            week4: { ...current },
-        }))
-        setCopySuccess(true)
-        setTimeout(() => setCopySuccess(false), 2500)
-    }
-
-    const currentWeekSchedule = schedule[selectedWeek] || makeEmptyWeek()
-    const activeDaysCount = DAYS_OF_WEEK.filter(d => currentWeekSchedule[d.key]?.active).length
+    const day = summarizeDay(appts.data, now)
+    const cancelados = (day.porEstado.cancelado ?? 0) + (day.porEstado.cancelado_tarde ?? 0)
+    const enCursoIds = new Set(day.enCurso.map(a => a.id))
 
     return (
         <div className="flex flex-col gap-6 w-full animate-in fade-in duration-500 pb-10">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
-                <p className="text-muted-foreground mt-1">Planificación semanal de disponibilidad de Profesionales.</p>
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight text-foreground">Hoy</h1>
+                    <p className="text-muted-foreground mt-1 first-letter:uppercase">
+                        {format(now, "EEEE d 'de' MMMM", { locale: es })}
+                    </p>
+                </div>
+                <div className="flex gap-2">
+                    <button
+                        type="button"
+                        onClick={refresh}
+                        disabled={loading}
+                        className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                        <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+                        Actualizar
+                    </button>
+                    <Link
+                        to="/appointments"
+                        className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                    >
+                        <CalendarDays className="w-4 h-4" />
+                        Ir a la agenda
+                    </Link>
+                </div>
             </div>
 
-            <div className="bg-card border border-border/60 rounded-xl shadow-sm overflow-hidden">
-                {/* Header */}
-                <div className="border-b border-border/50 p-5 bg-muted/20 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
-                    <div className="flex items-center gap-2">
-                        <Calendar className="w-5 h-5 text-primary" />
-                        <h2 className="text-lg font-semibold text-foreground">Planificación Mensual</h2>
-                    </div>
-                    <div className="flex flex-wrap gap-3">
-                        <select
-                            className="bg-background border border-input rounded-md px-3 py-1.5 text-sm font-medium focus:ring-1 focus:ring-primary outline-none cursor-pointer"
-                            value={selectedMonth}
-                            onChange={e => setSelectedMonth(Number(e.target.value))}
-                        >
-                            {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                        </select>
-                        <select
-                            className="bg-background border border-input rounded-md px-3 py-1.5 text-sm font-medium focus:ring-1 focus:ring-primary outline-none cursor-pointer"
-                            value={selectedYear}
-                            onChange={e => setSelectedYear(Number(e.target.value))}
-                        >
-                            <option value={2026}>2026</option>
-                            <option value={2027}>2027</option>
-                        </select>
-                    </div>
-                </div>
+            {/* Números del día */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <Kpi label="Turnos" value={day.total} hint="sin contar cancelados" />
+                <Kpi label="Confirmados" value={day.porEstado.confirmado ?? 0} color={STATUS_COLOR.confirmado} />
+                <Kpi label="Sin confirmar" value={day.sinConfirmar.length} color={STATUS_COLOR.pendiente} />
+                <Kpi label="Cancelados" value={cancelados} color={STATUS_COLOR.cancelado} />
+            </div>
 
-                <div className="p-6">
-                    <div className="flex flex-col xl:flex-row gap-8">
-                        {/* Professional Selector */}
-                        <div className="xl:w-56 shrink-0">
-                            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 px-1">Profesional</h3>
-                            <div className="space-y-1">
-                                {professionals.map(prof => (
-                                    <button
-                                        key={prof.id}
-                                        onClick={() => setSelectedProfId(prof.id)}
-                                        className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-all duration-150 flex items-center justify-between group cursor-pointer ${selectedProfId === prof.id
-                                                ? 'bg-primary/10 text-primary font-semibold'
-                                                : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-                                            }`}
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                {/* Turnos del día */}
+                <div className="xl:col-span-2 bg-card border border-border/60 rounded-xl shadow-sm overflow-hidden">
+                    <div className="border-b border-border/50 p-4 bg-muted/20 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                            <Clock className="w-5 h-5 text-primary" />
+                            <h2 className="text-lg font-semibold text-foreground">Turnos del día</h2>
+                        </div>
+                        {day.proximo && (
+                            <span className="text-sm text-muted-foreground">
+                                Próximo: <span className="font-medium text-foreground">{hhmm(day.proximo.start_time)}</span>
+                            </span>
+                        )}
+                    </div>
+                    {appts.error ? (
+                        <ErrorNote text="No se pudieron cargar los turnos de hoy." />
+                    ) : loading && appts.data.length === 0 ? (
+                        <p className="p-6 text-sm text-muted-foreground">Cargando…</p>
+                    ) : day.lista.length === 0 ? (
+                        <p className="p-6 text-sm text-muted-foreground">No hay turnos para hoy.</p>
+                    ) : (
+                        <ul className="divide-y divide-border/50">
+                            {day.lista.map(a => {
+                                const cancelado = a.status === 'cancelado' || a.status === 'cancelado_tarde'
+                                const esProximo = day.proximo?.id === a.id
+                                return (
+                                    <li
+                                        key={a.id}
+                                        className={cn(
+                                            'flex items-start sm:items-center gap-3 sm:gap-4 px-4 py-3',
+                                            enCursoIds.has(a.id) && 'bg-primary/5',
+                                            cancelado && 'opacity-50'
+                                        )}
                                     >
-                                        <span>{prof.first_name} {prof.last_name}</span>
-                                        {selectedProfId === prof.id && <ChevronRight className="w-3.5 h-3.5 opacity-60" />}
-                                    </button>
-                                ))}
-                                {professionals.length === 0 && (
-                                    <p className="text-sm text-muted-foreground italic px-2">No hay profesionales.</p>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Schedule Editor */}
-                        <div className="flex-1 min-w-0">
-                            {selectedProfId ? (
-                                <div className="space-y-4">
-                                    {/* Week Tabs */}
-                                    <div className="flex gap-2 flex-wrap">
-                                        {weekRanges.map(w => {
-                                            const weekData = schedule[w.key] || makeEmptyWeek()
-                                            const activeDays = DAYS_OF_WEEK.filter(d => weekData[d.key]?.active).length
-                                            const isSelected = selectedWeek === w.key
-                                            return (
-                                                <button
-                                                    key={w.key}
-                                                    onClick={() => setSelectedWeek(w.key)}
-                                                    className={`flex flex-col items-start px-4 py-2.5 rounded-xl border text-left transition-all duration-200 cursor-pointer ${isSelected
-                                                            ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/20'
-                                                            : 'bg-background border-border hover:border-primary/50 hover:bg-primary/5'
-                                                        }`}
+                                        <div className="w-24 shrink-0 text-sm tabular-nums">
+                                            <span className="font-semibold text-foreground">{hhmm(a.start_time)}</span>
+                                            <span className="text-muted-foreground"> – {hhmm(a.end_time)}</span>
+                                        </div>
+                                        {/* En celular las etiquetas bajan debajo del nombre para no taparlo */}
+                                        <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-4">
+                                            <div className="flex-1 min-w-0">
+                                                <p className={cn('text-sm font-medium text-foreground truncate', cancelado && 'line-through')}>
+                                                    {a.patients.join(' & ') || 'Sin paciente'}
+                                                </p>
+                                                <p className="text-xs text-muted-foreground truncate">
+                                                    {[a.service, a.room].filter(Boolean).join(' · ') || '—'}
+                                                </p>
+                                            </div>
+                                            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 sm:shrink-0">
+                                                {enCursoIds.has(a.id) && <Badge className="bg-primary/10 text-primary">En curso</Badge>}
+                                                {esProximo && <Badge className="bg-muted text-foreground">Próximo</Badge>}
+                                                {a.is_unpaid && !cancelado && <Badge className="bg-red-500/10 text-red-600 dark:text-red-400">Debe</Badge>}
+                                                <span
+                                                    className="text-xs font-medium px-2 py-0.5 rounded-full text-white"
+                                                    style={{ backgroundColor: STATUS_COLOR[a.status] ?? '#94a3b8' }}
                                                 >
-                                                    <span className={`text-xs font-bold uppercase tracking-wide ${isSelected ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
-                                                        {w.label}
-                                                    </span>
-                                                    <span className={`text-sm font-semibold ${isSelected ? 'text-primary-foreground' : 'text-foreground'}`}>
-                                                        {w.range}
-                                                    </span>
-                                                    <span className={`text-xs mt-0.5 ${isSelected ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                                                        {activeDays === 0 ? 'Sin días activos' : `${activeDays} día${activeDays > 1 ? 's' : ''} activo${activeDays > 1 ? 's' : ''}`}
-                                                    </span>
-                                                </button>
-                                            )
-                                        })}
-                                    </div>
-
-                                    {/* Day Grid */}
-                                    <div className="bg-background/50 border border-border/40 rounded-xl p-5">
-                                        {/* Header row */}
-                                        <div className="flex items-center justify-between mb-4">
-                                            <div className="flex items-center gap-2">
-                                                <Clock className="w-4 h-4 text-muted-foreground" />
-                                                <span className="text-sm font-semibold text-foreground">
-                                                    {weekRanges.find(w => w.key === selectedWeek)?.label} — Horarios
+                                                    {STATUS_LABEL[a.status] ?? a.status}
                                                 </span>
-                                                {activeDaysCount > 0 && (
-                                                    <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-full font-medium">
-                                                        {activeDaysCount} día{activeDaysCount > 1 ? 's' : ''} activo{activeDaysCount > 1 ? 's' : ''}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                {copySuccess && (
-                                                    <span className="text-xs font-medium text-green-500 bg-green-500/10 px-2.5 py-1 rounded-full flex items-center gap-1 animate-in slide-in-from-right-2">
-                                                        <CheckCircle2 className="w-3 h-3" /> Copiado
-                                                    </span>
-                                                )}
-                                                {saveSuccess && (
-                                                    <span className="text-xs font-medium text-green-500 bg-green-500/10 px-2.5 py-1 rounded-full flex items-center gap-1 animate-in slide-in-from-right-2">
-                                                        <CheckCircle2 className="w-3 h-3" /> Guardado
-                                                    </span>
-                                                )}
                                             </div>
                                         </div>
+                                    </li>
+                                )
+                            })}
+                        </ul>
+                    )}
+                </div>
 
-                                        <div className="space-y-2">
-                                            {DAYS_OF_WEEK.map(day => {
-                                                const dayData = currentWeekSchedule[day.key] || { active: false, start: '09:00', end: '18:00' }
-                                                const isActive = dayData.active
-                                                return (
-                                                    <div
-                                                        key={day.key}
-                                                        className={`flex items-center gap-3 p-3.5 rounded-lg border transition-all duration-200 ${isActive
-                                                                ? 'bg-card border-border/80 shadow-sm'
-                                                                : 'bg-muted/10 border-transparent'
-                                                            }`}
-                                                    >
-                                                        {/* Toggle + Day name */}
-                                                        <div className="flex items-center gap-3 w-28 shrink-0">
-                                                            <input
-                                                                type="checkbox"
-                                                                id={`${selectedWeek}-${day.key}`}
-                                                                checked={isActive}
-                                                                onChange={() => handleDayToggle(day.key)}
-                                                                className="w-4 h-4 accent-primary rounded cursor-pointer"
-                                                            />
-                                                            <label
-                                                                htmlFor={`${selectedWeek}-${day.key}`}
-                                                                className={`text-sm font-medium cursor-pointer select-none ${isActive ? 'text-foreground' : 'text-muted-foreground/60'}`}
-                                                            >
-                                                                {day.label}
-                                                            </label>
-                                                        </div>
-
-                                                        {/* Time inputs */}
-                                                        <div className={`flex items-center gap-2 transition-opacity duration-200 ${isActive ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
-                                                            <span className="text-xs text-muted-foreground">De</span>
-                                                            <input
-                                                                type="time"
-                                                                value={dayData.start}
-                                                                onChange={e => handleTimeChange(day.key, 'start', e.target.value)}
-                                                                disabled={!isActive}
-                                                                className="bg-background border border-input rounded px-2.5 py-1.5 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
-                                                            />
-                                                            <span className="text-xs text-muted-foreground">a</span>
-                                                            <input
-                                                                type="time"
-                                                                value={dayData.end}
-                                                                onChange={e => handleTimeChange(day.key, 'end', e.target.value)}
-                                                                disabled={!isActive}
-                                                                className="bg-background border border-input rounded px-2.5 py-1.5 text-sm text-foreground focus:ring-1 focus:ring-primary outline-none"
-                                                            />
-                                                        </div>
-
-                                                        {/* Active badge */}
-                                                        {isActive && (
-                                                            <span className="ml-auto text-xs text-primary/70 font-medium bg-primary/8 px-2 py-0.5 rounded-full hidden sm:block">
-                                                                Activo
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                )
-                                            })}
-                                        </div>
-
-                                        {/* Actions */}
-                                        <div className="mt-5 flex items-center justify-between pt-4 border-t border-border/50 flex-wrap gap-3">
-                                            <button
-                                                onClick={handleCopyToAllWeeks}
-                                                className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer"
-                                            >
-                                                <Copy className="w-3.5 h-3.5" />
-                                                Copiar esta semana a todas
-                                            </button>
-
-                                            <button
-                                                onClick={handleSaveSchedule}
-                                                disabled={isSaving}
-                                                className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground px-5 py-2 rounded-lg font-semibold text-sm transition-all focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background cursor-pointer shadow-sm disabled:opacity-70 disabled:cursor-not-allowed"
-                                            >
-                                                {isSaving ? (
-                                                    <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                                                ) : (
-                                                    <Save className="w-4 h-4" />
-                                                )}
-                                                {isSaving ? 'Guardando...' : 'Guardar mes completo'}
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="h-full flex items-center justify-center border border-dashed border-border/50 rounded-xl bg-muted/10 p-12">
-                                    <p className="text-muted-foreground text-sm text-center max-w-sm">
-                                        Seleccioná un profesional a la izquierda para configurar su disponibilidad semanal.
-                                    </p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
+                {/* Alertas */}
+                <div className="flex flex-col gap-4">
+                    <AlertCard
+                        icon={<Wallet className="w-4 h-4" />}
+                        title="Impagos de hoy"
+                        error={appts.error}
+                        emptyText="Nadie quedó debiendo hoy."
+                        items={day.impagos.map(a => ({
+                            key: a.id,
+                            main: a.patients.join(' & ') || 'Sin paciente',
+                            sub: `${hhmm(a.start_time)} · ${a.service ?? '—'}`,
+                        }))}
+                    />
+                    <AlertCard
+                        icon={<Ticket className="w-4 h-4" />}
+                        title="Pases que vencen esta semana"
+                        error={passes.error}
+                        emptyText="Ningún pase mensual vence en los próximos 7 días."
+                        items={passes.data.map(c => ({
+                            key: c.id,
+                            main: c.patients ? `${c.patients.first_name} ${c.patients.last_name}` : 'Paciente',
+                            sub: `${c.services?.name ?? 'Pase mensual'} · vence ${format(c.vence, "EEE d/MM", { locale: es })}`,
+                            to: `/patients/${c.patient_id}`,
+                        }))}
+                    />
+                    <AlertCard
+                        icon={<Package className="w-4 h-4" />}
+                        title="Stock bajo"
+                        error={stock.error}
+                        emptyText="Todos los insumos están por encima del mínimo."
+                        items={stock.data.map(i => ({
+                            key: i.id,
+                            main: i.name,
+                            sub: `Quedan ${Number(i.quantity)} ${i.unit} (mínimo ${Number(i.min_quantity)})`,
+                            to: '/stock',
+                        }))}
+                    />
+                    <AlertCard
+                        icon={<Pin className="w-4 h-4" />}
+                        title="Notas fijadas"
+                        error={notes.error}
+                        emptyText="No hay notas fijadas en el blog."
+                        items={notes.data.map(n => ({
+                            key: n.id,
+                            main: n.title,
+                            dot: NOTE_DOT[n.color] ?? NOTE_DOT.yellow,
+                            to: '/blog',
+                        }))}
+                    />
+                    <Link
+                        to="/horarios"
+                        className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                        <CalendarClock className="w-4 h-4" />
+                        Horarios de las profesionales
+                    </Link>
                 </div>
             </div>
+        </div>
+    )
+}
+
+function Kpi({ label, value, color, hint }: { label: string; value: number; color?: string; hint?: string }) {
+    return (
+        <div className="bg-card border border-border/60 rounded-xl shadow-sm p-4">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                {color && <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />}
+                {label}
+            </div>
+            <p className="text-3xl font-bold text-foreground mt-1 tabular-nums">{value}</p>
+            {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
+        </div>
+    )
+}
+
+function Badge({ className, children }: { className: string; children: React.ReactNode }) {
+    return <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', className)}>{children}</span>
+}
+
+function ErrorNote({ text }: { text: string }) {
+    return (
+        <p className="flex items-center gap-2 p-4 text-sm text-red-600 dark:text-red-400">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            {text} Probá con "Actualizar".
+        </p>
+    )
+}
+
+interface AlertItem { key: string; main: string; sub?: string; dot?: string; to?: string }
+
+function AlertCard({ icon, title, items, emptyText, error }: {
+    icon: React.ReactNode
+    title: string
+    items: AlertItem[]
+    emptyText: string
+    error: boolean
+}) {
+    return (
+        <div className="bg-card border border-border/60 rounded-xl shadow-sm overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-border/50 bg-muted/20">
+                <span className="text-primary">{icon}</span>
+                <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+                {items.length > 0 && (
+                    <span className="ml-auto text-xs font-semibold bg-primary/10 text-primary rounded-full px-2 py-0.5">{items.length}</span>
+                )}
+            </div>
+            {error ? (
+                <ErrorNote text="No se pudo cargar." />
+            ) : items.length === 0 ? (
+                <p className="px-4 py-3 text-sm text-muted-foreground">{emptyText}</p>
+            ) : (
+                <ul className="divide-y divide-border/50">
+                    {items.map(it => {
+                        const content = (
+                            <div className="flex items-center gap-2 px-4 py-2.5">
+                                {it.dot && <span className={cn('w-2 h-2 rounded-full shrink-0', it.dot)} />}
+                                <div className="min-w-0">
+                                    <p className="text-sm font-medium text-foreground truncate">{it.main}</p>
+                                    {it.sub && <p className="text-xs text-muted-foreground truncate">{it.sub}</p>}
+                                </div>
+                            </div>
+                        )
+                        return (
+                            <li key={it.key}>
+                                {it.to ? <Link to={it.to} className="block hover:bg-muted/40 transition-colors">{content}</Link> : content}
+                            </li>
+                        )
+                    })}
+                </ul>
+            )}
         </div>
     )
 }

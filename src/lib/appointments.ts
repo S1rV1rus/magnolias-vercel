@@ -23,6 +23,22 @@ export function isConsumedStatus(status?: string | null): boolean {
     return !!status && CONSUMED_STATUSES.includes(status)
 }
 
+// Color y nombre de cada estado: los usan la agenda y la pantalla "Hoy".
+export const STATUS_COLOR: Record<string, string> = {
+    confirmado: '#16a34a',
+    pendiente: '#d97706',
+    cancelado: '#ef4444',
+    cancelado_tarde: '#ef4444',
+    completado: '#2563eb', // estado histórico: ya no se ofrece, pero hay turnos viejos con él
+}
+export const STATUS_LABEL: Record<string, string> = {
+    confirmado: 'Confirmado',
+    pendiente: 'Pendiente',
+    cancelado: 'Cancelado',
+    cancelado_tarde: 'Cancelado c/penalidad',
+    completado: 'Completado',
+}
+
 // Ventana de turnos que carga la agenda para una fecha: el mes de esa fecha ± 7 días, así
 // cubre las semanas que cruzan de mes. Se usa como solapamiento: start_time < end y
 // end_time > start.

@@ -11,7 +11,7 @@ import { writeLog } from '../lib/logger'
 import { monthsProgress, formatMoney, isCuponeraActive } from '../lib/utils'
 import { shiftCuponeraSessionIndexes } from '../lib/cuponeras'
 import { fetchAllRows } from '../lib/fetchAll'
-import { agendaFetchRange, isConsumedStatus, notesSuggestNoCharge, projectCuponeraSessions, type CuponeraApptRow } from '../lib/appointments'
+import { agendaFetchRange, isConsumedStatus, notesSuggestNoCharge, projectCuponeraSessions, STATUS_COLOR, STATUS_LABEL, type CuponeraApptRow } from '../lib/appointments'
 import { findGiftCardByCode, redeemGiftCard, releaseGiftCard, GIFT_CARD_CONSUMED_STATUSES, type GiftCardRow } from '../lib/giftCards'
 
 const roundToNearest30 = (date: Date): Date => {
@@ -43,22 +43,6 @@ const messages = {
     event: 'Turno',
     noEventsInRange: 'No hay turnos en este rango.',
     showMore: (total: number) => `+${total} más`,
-}
-
-// ─── Status helpers ────────────────────────────────────────────────────────────
-const STATUS_COLOR: Record<string, string> = {
-    confirmado: '#16a34a',
-    pendiente: '#d97706',
-    cancelado: '#ef4444',
-    cancelado_tarde: '#ef4444',
-    completado: '#2563eb', // estado histórico: ya no se ofrece, pero hay turnos viejos con él
-}
-const STATUS_LABEL: Record<string, string> = {
-    confirmado: 'Confirmado',
-    pendiente: 'Pendiente',
-    cancelado: 'Cancelado',
-    cancelado_tarde: 'Cancelado c/penalidad',
-    completado: 'Completado',
 }
 
 // ─── Profesionales del turno ───────────────────────────────────────────────────

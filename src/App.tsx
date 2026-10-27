@@ -5,6 +5,7 @@ import { AuthProvider } from './contexts/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { Login } from './pages/Login'
 import { Home } from './pages/Home'
+import { Schedules } from './pages/Schedules'
 import { Appointments } from './pages/Appointments'
 import { Patients } from './pages/Patients'
 import { PatientDetails } from './pages/Patients/PatientDetails'
@@ -32,6 +33,7 @@ function App() {
                             <Route path="/" element={<Layout />}>
                                 <Route index element={<Home />} />
                                 <Route path="appointments" element={<Appointments />} />
+                                <Route path="horarios" element={<Schedules />} />
                                 <Route path="patients">
                                     <Route index element={<Patients />} />
                                     <Route path=":id" element={<PatientDetails />} />

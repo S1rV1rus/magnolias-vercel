@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Calendar, Users, Ticket, Settings, Home, LogOut, Activity, Menu, X, DollarSign, StickyNote, Package, BarChart3, Wallet, Gift } from 'lucide-react'
+import { Calendar, CalendarClock, Users, Ticket, Settings, Home, LogOut, Activity, Menu, X, DollarSign, StickyNote, Package, BarChart3, Wallet, Gift } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { ThemeToggle } from '../ThemeToggle'
 import { useAuth } from '../../contexts/AuthContext'
@@ -34,8 +34,9 @@ export function Layout() {
     const userInitial = userName.charAt(0).toUpperCase()
 
     const navigation = [
-        { name: 'Dashboard', href: '/', icon: Home },
+        { name: 'Hoy', href: '/', icon: Home },
         { name: 'Agenda', href: '/appointments', icon: Calendar },
+        { name: 'Horarios', href: '/horarios', icon: CalendarClock },
         { name: 'Pacientes', href: '/patients', icon: Users },
         { name: 'Cuponeras', href: '/coupons', icon: Ticket },
         { name: 'Gift Cards', href: '/gift-cards', icon: Gift },
