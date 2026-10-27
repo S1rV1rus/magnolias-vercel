@@ -71,7 +71,7 @@ supabase db query --linked -f supabase/manual/03_fotos_politicas.sql
 La tabla final tiene que mostrar las 3 políticas con `{authenticated}`. Después: entrar a la app,
 abrir una ficha con fotos (tienen que verse), subir una foto de prueba y borrarla.
 
-## Paso 5 — Bucket de fotos privado (requiere deploy del front ANTES)
+## Paso 5 — Bucket de fotos privado ✅ aplicado el 2026-10-27 (después del deploy de a0e6a8b)
 
 La web ya pide las fotos con URLs firmadas que vencen a las 8 horas (`src/lib/photos.ts`). Con eso
 en producción, el bucket se puede hacer privado y una foto deja de abrirse por su URL directa.
