@@ -66,10 +66,13 @@ supabase/
 
 ## Pendientes conocidos
 
-Necesitan acceso a la base de Supabase (el esquema base, las políticas RLS y las funciones
-`wsp_*` del bot existen solo en la base, no en este repo):
+Necesitan cambios en la base de Supabase. El esquema completo (tablas, RLS, funciones `wsp_*` del
+bot) está en [`supabase/schema.sql`](supabase/schema.sql); las migraciones de `supabase/migrations`
+son solo parte de la historia. Los cambios se hacen a mano desde el SQL Editor con los scripts y
+el paso a paso de [`supabase/manual/`](supabase/manual/README.md):
 
-1. Bajar el esquema al repo (`supabase db pull`) para versionarlo.
+1. **Urgente:** cerrar el acceso con la clave pública a las funciones y vistas del bot, que hoy
+   exponen nombres y teléfonos de pacientes (`02_cerrar_accesos_publicos.sql`).
 2. Pasar el bucket `patient-photos` a privado y servir las fotos con URLs firmadas.
 3. RLS por rol (hoy cualquier usuario logueado puede leer y escribir todo vía API).
 4. Mover a la base las reglas que hoy corren en el navegador sin transacción: superposición de
