@@ -5,7 +5,7 @@ import { ArrowLeft, Calendar, CalendarDays, FileText, CreditCard, Plus, Ticket, 
 import { cn, formatMoney, monthsProgress, localDateStr, isCuponeraActive } from '../../lib/utils'
 import { shiftCuponeraSessionIndexes } from '../../lib/cuponeras'
 import { debtPaymentAmounts, isConsumedStatus } from '../../lib/appointments'
-import { signPhotoUrls } from '../../lib/photos'
+import { photoFailureMessage, signPhotoUrls, uploadHistoryPhotos } from '../../lib/photos'
 import { CurrencyToggle, ZonesPicker } from '../../components/CuponeraFields'
 
 interface ProfessionalRef {
@@ -507,23 +507,10 @@ export function PatientDetails() {
             // Upload pending photos
             if (pendingPhotos.length > 0) {
                 setUploadingPhotos(true)
-                for (let i = 0; i < pendingPhotos.length; i++) {
-                    const file = pendingPhotos[i]
-                    const ext = file.name.split('.').pop() || 'jpg'
-                    const path = `${id}/${newEntry.id}/${crypto.randomUUID()}.${ext}`
-                    const { error: uploadError } = await supabase.storage
-                        .from('patient-photos')
-                        .upload(path, file, { upsert: false })
-                    if (!uploadError) {
-                        await supabase.from('clinical_history_photos').insert({
-                            clinical_history_id: newEntry.id,
-                            patient_id: id,
-                            storage_path: path,
-                            photo_order: i + 1
-                        })
-                    }
-                }
+                const { failed } = await uploadHistoryPhotos(supabase, { patientId: id!, historyId: newEntry.id, files: pendingPhotos })
                 setUploadingPhotos(false)
+                const photoError = photoFailureMessage(failed, pendingPhotos.length)
+                if (photoError) alert(`La entrada se guardó, pero: ${photoError}`)
             }
 
             // If we are consuming a session, increment used_sessions!
@@ -595,23 +582,14 @@ export function PatientDetails() {
 
             // Upload any new pending photos
             if (pendingPhotos.length > 0) {
-                const currentCount = editingHistoryPhotos.length;
-                for (let i = 0; i < pendingPhotos.length; i++) {
-                    const file = pendingPhotos[i]
-                    const ext = file.name.split('.').pop() || 'jpg'
-                    const path = `${id}/${selectedHistoryEntry.id}/${crypto.randomUUID()}.${ext}`
-                    const { error: uploadError } = await supabase.storage
-                        .from('patient-photos')
-                        .upload(path, file, { upsert: false })
-                    if (!uploadError) {
-                        await supabase.from('clinical_history_photos').insert({
-                            clinical_history_id: selectedHistoryEntry.id,
-                            patient_id: id,
-                            storage_path: path,
-                            photo_order: currentCount + i + 1
-                        })
-                    }
-                }
+                const { failed } = await uploadHistoryPhotos(supabase, {
+                    patientId: id!,
+                    historyId: selectedHistoryEntry.id,
+                    files: pendingPhotos,
+                    firstOrder: editingHistoryPhotos.length + 1,
+                })
+                const photoError = photoFailureMessage(failed, pendingPhotos.length)
+                if (photoError) alert(`Los cambios se guardaron, pero: ${photoError}`)
             }
 
             setSelectedHistoryEntry(null)

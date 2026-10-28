@@ -1038,9 +1038,10 @@ export function Appointments() {
 
         const { data: overlapping, error: overlapError } = await query
 
+        // Si no se pudo verificar, no se guarda: dejarlo pasar es la forma de que se cuele un doble turno
         if (overlapError) {
-            console.warn('Overlap check failed (posiblemente RLS):', overlapError)
-            return null
+            console.error('Overlap check failed:', overlapError)
+            return 'No se pudo comprobar si el horario está libre. Revisá la conexión e intentá de nuevo.'
         }
         if (!overlapping?.length) return null
 
@@ -1408,7 +1409,7 @@ export function Appointments() {
                 entityType: 'appointment',
                 entityId: selectedEvent.id,
                 details: {
-                    label: `${currentUserName} canceló el turno de ${patientNames}`,
+                    label: `${currentUserName} eliminó el turno de ${patientNames}`,
                     patient: patientNames,
                     service: raw.service?.name,
                     professional: professionalsFullLabel(raw.professionalList, raw.professional),

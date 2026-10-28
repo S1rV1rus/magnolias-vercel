@@ -116,11 +116,15 @@ export function Patients() {
     }
 
     const handleDeletePatient = async (patient: any) => {
-        if (!window.confirm(`¿Seguro que deseas eliminar a ${patient.first_name} ${patient.last_name}? Esta acción eliminará también sus turnos, cuponeras e historia clínica.`)) return
+        const fullName = `${patient.first_name} ${patient.last_name}`
+        if (!window.confirm(`¿Seguro que deseas eliminar a ${fullName}?\n\nSolo se puede eliminar un paciente que no tenga turnos, cuponeras ni historia clínica (por ejemplo, uno creado por error).`)) return
         const { error } = await supabase.from('patients').delete().eq('id', patient.id)
         if (error) {
             console.error('Error deleting patient:', error)
-            alert('No se pudo eliminar el paciente. Intentá de nuevo.')
+            // 23503 = la base lo frena porque hay turnos, cuponeras o historia que apuntan a este paciente
+            alert(error.code === '23503'
+                ? `No se puede eliminar a ${fullName} porque tiene turnos, cuponeras o historia clínica cargados.`
+                : 'No se pudo eliminar el paciente. Intentá de nuevo.')
         } else fetchPatients()
     }
 

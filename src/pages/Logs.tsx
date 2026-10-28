@@ -50,7 +50,7 @@ export function Logs() {
         turno_cancelado_tarde: 'Cancelado tarde',
         turno_completado: 'Completado',
         turno_pendiente: 'Pendiente',
-        turno_eliminado: 'Cancelado',
+        turno_eliminado: 'Eliminado',
         turno_creado: 'Creado',
     }
 
