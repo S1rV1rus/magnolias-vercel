@@ -90,6 +90,27 @@ en producción, el bucket se puede hacer privado y una foto deja de abrirse por 
 4. Recargar la ficha: las fotos se siguen viendo. La dirección vieja con `/object/public/` ahora
    tiene que dar error.
 
+## Paso 6 — Bot: teléfonos de 8 dígitos y meses de los pases
+
+[`05_bot_telefonos_y_pases.sql`](05_bot_telefonos_y_pases.sql) corrige dos funciones del bot (no
+toca datos ni permisos):
+
+- **Recordatorios:** los celulares guardados con 8 dígitos sin el 0 (`99123456`) nunca se daban
+  de alta en ManyChat, así que esos pacientes no recibían recordatorios. Ahora se convierten a
+  `+598 9…`. Ojo: en la próxima corrida, n8n va a intentar vincular a esos pacientes en ManyChat,
+  igual que ya hace con los que tienen el 0.
+- **Pases mensuales:** el bot decía que quedaban todos los meses (usaba `used_months`, que nunca
+  se actualiza). Ahora calcula por fecha como el panel, esconde los vencidos y agrega `vence`.
+
+```bash
+supabase db query --linked -f supabase/manual/05_bot_telefonos_y_pases.sql
+```
+
+La tabla final tiene que mostrar `version_nueva = true`, `anon = false` y `service_role = true`
+en las dos funciones. Después: escribirle al bot desde un teléfono de un paciente con pase
+mensual y ver que diga los meses correctos. Si algo falla, correr
+[`05_deshacer.sql`](05_deshacer.sql), que tiene las versiones originales.
+
 ## Resultado del diagnóstico (2026-10-27)
 
 - ~450 turnos, ~530 pacientes, 13 usuarios (1 admin, 11 staff, 1 sin rol → ✅ era la cuenta del
@@ -105,9 +126,9 @@ en producción, el bucket se puede hacer privado y una foto deja de abrirse por 
 
 | # | Cambio | Riesgo | Depende de |
 |---|---|---|---|
-| 05 | **Turnos superpuestos imposibles** en la misma sala (restricción `exclude` con `btree_gist`) | Falla si ya hay superposiciones | Resolver el par superpuesto |
-| 06 | **Permisos por rol (RLS):** admin vs staff en configuración, borrados y contabilidad | Si una regla queda mal, el staff deja de ver algo | 02 |
-| 07 | **Consumo de sesiones de cuponera en la base** (función atómica) | Cambia cómo guarda la agenda | 05 y 06 |
+| 06 | **Turnos superpuestos imposibles** en la misma sala (restricción `exclude` con `btree_gist`) | Falla si ya hay superposiciones | Resolver el par superpuesto |
+| 07 | **Permisos por rol (RLS):** admin vs staff en configuración, borrados y contabilidad | Si una regla queda mal, el staff deja de ver algo | 02 |
+| 08 | **Consumo de sesiones de cuponera en la base** (función atómica) | Cambia cómo guarda la agenda | 06 y 07 |
 | — | Índices en turnos | Ninguno; con ~450 turnos todavía no hace falta | Cuando crezca |
 
 Cada script nuevo va a venir con: qué hace, cómo verificar antes y después, y cómo deshacerlo.
